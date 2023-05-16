@@ -12,32 +12,51 @@ from PIL import Image
 
 
 def get_pixel(image, row, col):
-    return image["pixels"][col, row]
+    return image["pixels"][row*image["width"] + col]
+
+
+def get_pixel_padded(image, row, col, padding = 'zero'):
+    if 0 <= row < image["height"] and 0 <= col < image["width"]:
+        return get_pixel(image, row, col)
+    
+    match padding:
+        case 'zero':
+            return 0
+        case 'wrap':
+            return get_pixel(image, row%image["height"], col%image["width"])
+        case 'extend':
+            clampRow = ((0 <= row < image["height"])*row) or ((row >= image["height"])*(image["height"]-1)) or ((row < 0)*0)
+            clampCol = ((0 <= col < image["width"])*col) or ((col >= image["width"])*(image["width"]-1)) or ((col < 0)*0)
+            return get_pixel(image, clampRow, clampCol)
 
 
 def set_pixel(image, row, col, color):
-    image["pixels"][row, col] = color
+    image["pixels"][row*image["width"] + col] = color
 
 
 def apply_per_pixel(image, func):
     result = {
         "height": image["height"],
-        "widht": image["width"],
-        "pixels": [],
+        "width": image["width"],
+        "pixels": [0]*len(image["pixels"]),
     }
-    for col in range(image["height"]):
-        for row in range(image["width"]):
-            color = get_pixel(image, col, row)
+
+    for row in range(image["height"]):
+        for col in range(image["width"]):
+            color = get_pixel(image, row, col)
             new_color = func(color)
-        set_pixel(result, row, col, new_color)
+            set_pixel(result, row, col, new_color)
     return result
 
 
 def inverted(image):
-    return apply_per_pixel(image, lambda color: 256-color)
+    return apply_per_pixel(image, lambda color: 255-color)
 
 
 # HELPER FUNCTIONS
+
+def boxBlurKernel(kernSize):
+    return [[1.0/(kernSize**2)]*kernSize for _ in range(kernSize)]
 
 def correlate(image, kernel, boundary_behavior):
     """
@@ -59,8 +78,37 @@ def correlate(image, kernel, boundary_behavior):
     separate structure to represent the output.
 
     DESCRIBE YOUR KERNEL REPRESENTATION HERE
+    Kernels will be represented as a list of lists in order to be consistent with
+    the general 2d nature of image convolution kernels. It also reduces the general
+    necessity of functions needed to index the kernel as a 1d list despite being
+    2d in nature.
     """
-    raise NotImplementedError
+    # edge cases
+    if boundary_behavior not in ["zero", "extend", "wrap"]:
+        return None
+    
+    # compute correlation with unknown sized kernel
+    outIm = {'height': image['height'],
+             'width': image['width'],
+             'pixels': [0]*len(image['pixels'])}
+    kernHalfWidth = (len(kernel)-1)//2 # kernel ranges from -2, -1, 0, 1, 2 for a 3x3
+    
+    # determines the beginning of correlation w.r.t. input image coords
+    for rowOrigin in range(image['height']):
+        for colOrigin in range(image["width"]):
+            # calculates the correlation starting from the origins
+            outPixelVal = 0
+            for kernRow, offsetRow in enumerate(range(-1*kernHalfWidth, kernHalfWidth+1)):
+                for kernCol, offsetCol in enumerate(range(-1*kernHalfWidth, kernHalfWidth+1)):
+                    outPixelVal += get_pixel_padded(image, 
+                                                    rowOrigin + offsetRow, 
+                                                    colOrigin + offsetCol, 
+                                                    boundary_behavior
+                                                    ) * kernel[kernRow][kernCol]
+
+            # and then write to our output image
+            set_pixel(outIm, rowOrigin, colOrigin, outPixelVal)
+    return outIm
 
 
 def round_and_clip_image(image):
@@ -74,12 +122,21 @@ def round_and_clip_image(image):
     255 in the output; and any locations with values lower than 0 in the input
     should have value 0 in the output.
     """
-    raise NotImplementedError
+    # first round all values and then clip
+    for pixInd in range(len(image["pixels"])):
+        newPixelVal = round(image["pixels"][pixInd])
+        if newPixelVal < 0:
+            newPixelVal = 0
+        elif newPixelVal > 255:
+            newPixelVal = 255
+        image["pixels"][pixInd] = newPixelVal
+    
+    return image
 
 
 # FILTERS
 
-def blurred(image, kernel_size):
+def blurred(image, kernel_size, * , padMethod = 'extend'):
     """
     Return a new image representing the result of applying a box blur (with the
     given kernel size) to the given input image.
@@ -89,13 +146,14 @@ def blurred(image, kernel_size):
     """
     # first, create a representation for the appropriate n-by-n kernel (you may
     # wish to define another helper function for this)
+    blurKern = boxBlurKernel(kernel_size)
 
     # then compute the correlation of the input image with that kernel
+    outIm = correlate(image, blurKern, padMethod)
 
     # and, finally, make sure that the output is a valid image (using the
     # helper function from above) before returning it.
-    raise NotImplementedError
-
+    return round_and_clip_image(outIm)
 
 
 # HELPER FUNCTIONS FOR LOADING AND SAVING IMAGES
@@ -144,4 +202,24 @@ if __name__ == "__main__":
     # code in this block will only be run when you explicitly run your script,
     # and not when the tests are being run.  this is a good place for
     # generating images, etc.
-    pass
+    print("Smoke testing inverting function...")
+    bluegill = load_greyscale_image('./test_images/bluegill.png')
+    save_greyscale_image(inverted(bluegill), './test_results/inverted_bluegill.png')
+
+    # Test the correlation filter with the pigbird image...
+    print("Smoke testing correlation function...")
+    kernSize = 13
+    translateKern = [[0]*kernSize for _ in range(kernSize)]
+    translateKern[2][0] = 1
+    pigbird = load_greyscale_image('./test_images/pigbird.png')
+    for padMethod in ["zero", "extend", "wrap"]:
+        save_greyscale_image(round_and_clip_image(correlate(pigbird, translateKern, padMethod)),
+                             './test_results/translate_pigbird_{}.png'.format(padMethod))
+
+    # test box blur kernel against a cat image
+    print("Smoke testing blurred function...")
+    blurSize = 13
+    catIm = load_greyscale_image('./test_images/cat.png')
+    for padMethod in ["zero", "extend", "wrap"]:
+        save_greyscale_image(blurred(catIm, blurSize, padMethod = padMethod),
+                             './test_results/cat_blur_{}.png'.format(padMethod))
