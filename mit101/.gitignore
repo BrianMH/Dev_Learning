@@ -1,0 +1,11 @@
+# Cache files and other garbage
+__pycache__
+.pytest_cache
+pylintrc
+
+# Deals with inputs/outputs specifically
+test_inputs
+test_outputs
+sounds
+test_images
+test_results
