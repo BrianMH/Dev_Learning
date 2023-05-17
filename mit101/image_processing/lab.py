@@ -79,9 +79,9 @@ def correlate(image, kernel, boundary_behavior):
 
     DESCRIBE YOUR KERNEL REPRESENTATION HERE
     Kernels will be represented as a list of lists in order to be consistent with
-    the general 2d nature of image convolution kernels. It also reduces the general
-    necessity of functions needed to index the kernel as a 1d list despite being
-    2d in nature.
+        the general 2d nature of image convolution kernels. It also reduces the general
+        necessity of functions needed to index the kernel as a 1d list despite being
+        2d in nature.
     """
     # edge cases
     if boundary_behavior not in ["zero", "extend", "wrap"]:
@@ -155,6 +155,50 @@ def blurred(image, kernel_size, * , padMethod = 'extend'):
     # helper function from above) before returning it.
     return round_and_clip_image(outIm)
 
+def sharpened(image, kernel_size, * , padMethod = 'extend'):
+    """
+    Return a new image representing the result of applying a sharpening operation
+    (composed of a blur of kernel_size) to the given input image.
+
+    As usual, returns a new image and does not modify the original image.
+
+    Since correlation calculations (effectively convolution) are linear in nature,
+    a convolution of form A*K1+A*K2 is equivalent to A*(K1+K2).
+    """
+    # First we create the kernel from the blur kernel as 2K_i - K_b
+    blurKern = boxBlurKernel(kernel_size)
+    sharpKern = [[-1*elem for elem in row] for row in blurKern]
+    sharpKern[kernel_size//2][kernel_size//2] += 2
+
+    # And then apply it to the image
+    outIm = correlate(image, sharpKern, padMethod)
+
+    # And then bound it to proper values
+    return round_and_clip_image(outIm)
+
+
+def edges(image):
+    """
+    Performs a sobel edge detection over a given input image and returns
+    the output on a completely new image.
+
+    More formally, a sobel edge detector is the root of the sum of squares
+    produced by the two sobel edge detection kernels in the vertical and
+    horizontal orientation.
+    """
+    # define our kernels
+    kRow = [[-1, -2, -1],
+            [0, 0, 0],
+            [1, 2, 1]]
+    kCol = [[-1, 0, 1],
+            [-2, 0, 2],
+            [-1, 0, 1]]
+    
+    # and now process the final image
+    imRSAdder = lambda im1, im2: {'pixels':[math.sqrt(elem1**2+elem2**2) for elem1, elem2 in zip(im1['pixels'], im2['pixels'])],
+                                  'height':im1['height'],
+                                  'width': im1['width']}
+    return round_and_clip_image(imRSAdder(correlate(image, kRow, 'extend'), correlate(image, kCol, 'extend')))
 
 # HELPER FUNCTIONS FOR LOADING AND SAVING IMAGES
 
@@ -206,20 +250,32 @@ if __name__ == "__main__":
     bluegill = load_greyscale_image('./test_images/bluegill.png')
     save_greyscale_image(inverted(bluegill), './test_results/inverted_bluegill.png')
 
-    # Test the correlation filter with the pigbird image...
-    print("Smoke testing correlation function...")
-    kernSize = 13
-    translateKern = [[0]*kernSize for _ in range(kernSize)]
-    translateKern[2][0] = 1
-    pigbird = load_greyscale_image('./test_images/pigbird.png')
-    for padMethod in ["zero", "extend", "wrap"]:
-        save_greyscale_image(round_and_clip_image(correlate(pigbird, translateKern, padMethod)),
-                             './test_results/translate_pigbird_{}.png'.format(padMethod))
+    # # Test the correlation filter with the pigbird image...
+    # print("Smoke testing correlation function...")
+    # kernSize = 13
+    # translateKern = [[0]*kernSize for _ in range(kernSize)]
+    # translateKern[2][0] = 1
+    # pigbird = load_greyscale_image('./test_images/pigbird.png')
+    # for padMethod in ["zero", "extend", "wrap"]:
+    #     save_greyscale_image(round_and_clip_image(correlate(pigbird, translateKern, padMethod)),
+    #                          './test_results/translate_pigbird_{}.png'.format(padMethod))
 
-    # test box blur kernel against a cat image
-    print("Smoke testing blurred function...")
-    blurSize = 13
-    catIm = load_greyscale_image('./test_images/cat.png')
-    for padMethod in ["zero", "extend", "wrap"]:
-        save_greyscale_image(blurred(catIm, blurSize, padMethod = padMethod),
-                             './test_results/cat_blur_{}.png'.format(padMethod))
+    # # test box blur kernel against a cat image
+    # print("Smoke testing blurred function...")
+    # blurSize = 13
+    # catIm = load_greyscale_image('./test_images/cat.png')
+    # for padMethod in ["zero", "extend", "wrap"]:
+    #     save_greyscale_image(blurred(catIm, blurSize, padMethod = padMethod),
+    #                          './test_results/cat_blur_{}.png'.format(padMethod))
+        
+    # # test the sharpened kernel now against another image
+    # print("Smoke testing sharpened function...")
+    # blurSize = 11
+    # pythonIm = load_greyscale_image('./test_images/python.png')
+    # save_greyscale_image(sharpened(pythonIm, blurSize), 
+    #                      './test_results/sharpened_python.png')
+    
+    # finally test the sobel operator 
+    print("Smoke testing sobel operator...")
+    constIm = load_greyscale_image('./test_images/construct.png')
+    save_greyscale_image(edges(constIm), './test_results/edges_construct.png')
