@@ -4,8 +4,12 @@ __pycache__
 pylintrc
 
 # Deals with inputs/outputs specifically
-test_inputs
-test_outputs
-sounds
-test_images
-test_results
+test_inputs/
+test_outputs/
+sounds/
+test_images/
+test_results/
+
+# Bacon lab intrinsic ignores (mostly web dev stuff)
+ui/
+resources/
