@@ -66,6 +66,45 @@ def test_acted_together_additional(test_num):
     _run_pickled_together_test(test_num)
 
 
+def test_tiny_bacon_number_00():
+    # Actors in tinydb with Bacon number of 0
+    n = 0
+    expected = {4724}
+
+    result = lab.actors_with_bacon_number(db_tiny, n)
+    assert isinstance(result, set)
+    assert result == expected
+
+
+def test_tiny_bacon_number_01():
+    # Actors in tinydb with Bacon number of 1
+    n = 1
+    expected = {2876, 1532}
+
+    result = lab.actors_with_bacon_number(db_tiny, n)
+    assert isinstance(result, set)
+    assert result == expected
+
+def test_tiny_bacon_number_02():
+    # Actors in tinydb with Bacon number of 2
+    n = 2
+    expected = {1640}
+
+    result = lab.actors_with_bacon_number(db_tiny, n)
+    assert isinstance(result, set)
+    assert result == expected
+
+
+def test_tiny_bacon_number_03():
+    # Actors in tinydb with Bacon number of 3
+    n = 3
+    expected = set()
+
+    result = lab.actors_with_bacon_number(db_tiny, n)
+    assert isinstance(result, set)
+    assert result == expected
+
+
 def test_bacon_number_01():
     # Actors with Bacon number of 2
     n = 2
@@ -121,6 +160,16 @@ def test_bacon_number_04():
     k = random.randint(4, 7)
     assert len(lab.actors_with_bacon_number(lab.transform_data(make_bacon_tree(N, k)), 10**20)) == 0
     assert len(lab.actors_with_bacon_number(lab.transform_data(make_bacon_tree(N, k)), 10**20)) == 0
+
+
+def test_tiny_bacon_path_00():
+    # tests for known path return on tiny db
+    actor_id = 1640
+    len_expected = 2
+
+    result = lab.bacon_path(db_tiny, actor_id)
+
+    check_valid_path(fset_tiny, result, 4724, actor_id, len_expected)
 
 
 def test_bacon_path_01():

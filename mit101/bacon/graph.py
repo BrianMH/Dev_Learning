@@ -19,17 +19,28 @@ class Edge():
     def getValue(self):
         return self.value
 
-class Graph():
+class BaconGraph():
     def __init__(self):
         """
         A graph is a collection of vertices and edges. Vertices represents specific
         hashable points that are referenceable while the edges represent connections
         between these vertices that can have some custom value. By default,
         an empty graph is always constructed.
+
+        A BaconGraph is special in that it can contain a dictionary that represents
+        all of the distances from Kevin Bacon with a given function.
         """
         self.nodeAdjList = dict()   # A collection of nodes adjacent to a given node
         self.edgeMatrix = dict()    # The collection of edges making up this graph
                                     # Takes in (vertexA, vertexB) tuples.
+        
+        # Bacon distance specific functions
+        self.distTable = dict()     # maps actors to their bacon distance
+        self.revDistTable = dict()  # maps bacon distances to sets of actors
+        self.relativeNode = None
+
+    def getVertexNames(self):
+        return list(self.nodeAdjList.keys()).copy()
 
     def addDirectedEdge(self, elemA, elemB, edgeVal = None):
         """
@@ -87,11 +98,15 @@ class Graph():
         a list of distances for the entire graph given the input. Note that
         this can take quite a bit of time depending on the size of the graph
         and the actual number of reachable elements.
+
+        Args:
+            elem: The node to calculate all distances from
         """
         # initialize our traversal and resultant dictionary
         visited = {elem}
         toVisit = [(elem, int(0))]
         distDict = {elem: 0}
+        revDistDict = {0: {elem}}
         
         # performs a simple bfs
         while toVisit:
@@ -105,10 +120,48 @@ class Graph():
                 else:
                     visited.add(childNode)
 
+                # forward
                 distDict[childNode] = curDist + 1
                 toVisit.append((childNode, curDist + 1))
 
-        return distDict
+                # reverse
+                if revDistDict.get(curDist+1, None) is None:
+                    revDistDict[curDist+1] = set()
+                revDistDict[curDist+1].add(childNode)
+
+        # and then save this element
+        self.distTable = distDict
+        self.relativeNode = elem
+        self.revDistTable = revDistDict
+
+    def getDistanceTo(self, elem):
+        """
+        Returns the "bacon distance" to the specific node. Node that this function
+        must be run after the above function as the above is in charge of defining
+        the relative node in question. If the node does not exist in the graph by the
+        time the distances were calculated, then returns None.
+
+        Args:
+            elem: The node to calculate the distance to.
+        """
+        # Enforce relative function order
+        if self.relativeNode is None:
+            raise RuntimeError("computeDistanceFrom must be run before this function...")
+        
+        return self.distTable.get(elem, None)
+    
+    def getAllElementsWithDistance(self, dist):
+        """
+        Returns the set of all actors within a specified distance from the node used to
+        pre-compute distances. Returns None if the node is not connected.
+
+        Args:
+            dist: The specified path distance that we are interested in
+        """
+        if self.relativeNode is None:
+            raise RuntimeError("computeDistanceFrom must be run before this function...")
+        
+        return self.revDistTable.get(dist, set())
 
     def getNeighbors(self, elem):
         """
@@ -120,7 +173,6 @@ class Graph():
             elem: The node to acquire the neighbors for.
         """
         return self.nodeAdjList[elem].copy()
-
 
     def computeSpecificPath(self, startLoc, endLoc):
         """
@@ -134,7 +186,7 @@ class Graph():
         """
         satFunc = lambda endNode:endNode == endLoc
         return self.computeGeneralPath(startLoc, satFunc)
-    
+
     def computeGeneralPath(self, startLoc, satFunc):
         """
         Computes a path to some unspecified ending location depending on what is
@@ -169,7 +221,7 @@ class Graph():
                 toVisit.append(childNode)
 
         # no possible path found
-        return []
+        return None
 
     def backtrackPath(self, endNode, parentDict):
         """
@@ -186,7 +238,7 @@ class Graph():
             path.append(parentDict[curNode])
             curNode = parentDict[curNode]
 
-        return reversed(path)
+        return list(reversed(path))
 
     def computeEdgePathFromVertices(self, vertices):
         """
@@ -199,11 +251,11 @@ class Graph():
         """
         totPath = list()
         for vertInd in range(len(vertices)-1):
-            curPathTup = (vertices[vertInd], vertices[vertInd]+1)
+            curPathTup = (vertices[vertInd], vertices[vertInd+1])
             if self.edgeMatrix.get(curPathTup, None) is None:
                 return []
             else:
-                totPath.append(self.edgeMatrix[curPathTup])
+                totPath.append(self.edgeMatrix[curPathTup].getValue())
         
         return totPath
     
