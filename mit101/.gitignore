@@ -9,7 +9,11 @@ test_outputs/
 sounds/
 test_images/
 test_results/
+test_levels/
 
 # Bacon lab intrinsic ignores (mostly web dev stuff)
 ui/
 resources/
+
+# Snekoban lab ignores
+puzzles/
