@@ -34,7 +34,7 @@ def actors_with_bacon_number(transformed_data, n):
     if transformed_data.relativeNode is None:
         transformed_data.computeDistancesFrom(4724)
     
-    return transformed_data.getAllElementsWithDistance(n)
+    return transformed_data.getAllActorsWithDistance(n)
 
 
 def bacon_path(transformed_data:BaconGraph, actor_id, * , from_id = 4724):
@@ -54,7 +54,8 @@ def actor_path(transformed_data, actor_id_1, goal_test_function):
 
 
 def actors_connecting_films(transformed_data, film1, film2):
-    raise NotImplementedError("Implement me!")
+    edgePath = transformed_data.computeEdgePath(film1, film2)
+    return transformed_data.computeVertexPathFromEdges(edgePath)
 
 
 if __name__ == "__main__":
@@ -130,6 +131,12 @@ if __name__ == "__main__":
     print("Movies forming a path between Kate Jennings Grant to Iva Ilakovac: {}".format(res8), end='\n\n')
 
     # Finally, we deal with movie paths, which require a bit of refactoring about
-    # how we detail edges in this graph.
+    # how we detail edges in this graph. For this, we can either invert the meaning
+    # between the graphs and create an entirely new object, or we can manipulate the
+    # current graph to compute something like a BFS on edges instead.
     print("====== TESTING MOVIES AS NODES ======")
-    
+    res9 = actors_connecting_films(largeGraph, 
+                                   movieDict['Frost/Nixon'], 
+                                   movieDict['It Ends with the Taste of Smoke'])
+    res9Human = [revLookupNameDict[aID] for aID in res9]
+    print("Actors forming a path between Frost/Nixon and It Ends with the Taste of Smoke: {}".format(res9Human))
