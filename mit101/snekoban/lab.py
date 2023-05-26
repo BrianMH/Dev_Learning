@@ -3,7 +3,6 @@
 """
 
 import json
-import typing
 
 # NO ADDITIONAL IMPORTS!
 from snekoban import SnekobanGame
