@@ -6,14 +6,7 @@ import json
 import typing
 
 # NO ADDITIONAL IMPORTS!
-
-
-direction_vector = {
-    "up": (-1, 0),
-    "down": (+1, 0),
-    "left": (0, -1),
-    "right": (0, +1),
-}
+from snekoban import SnekobanGame
 
 
 def new_game(level_description):
@@ -34,7 +27,7 @@ def new_game(level_description):
     The exact choice of representation is up to you; but note that what you
     return will be used as input to the other functions.
     """
-    raise NotImplementedError
+    return SnekobanGame.deriveMemorylessGameState(level_description)
 
 
 def victory_check(game):
@@ -43,7 +36,7 @@ def victory_check(game):
     a Boolean: True if the given game satisfies the victory condition, and
     False otherwise.
     """
-    raise NotImplementedError
+    return game["gameFinished"]
 
 
 def step_game(game, direction):
@@ -55,7 +48,7 @@ def step_game(game, direction):
 
     This function should not mutate its input.
     """
-    raise NotImplementedError
+    return SnekobanGame.memorylessGameUpdate(game, direction)
 
 
 def dump_game(game):
@@ -69,7 +62,7 @@ def dump_game(game):
     print out the current state of your game for testing and debugging on your
     own.
     """
-    raise NotImplementedError
+    return SnekobanGame.memorylessCannonicalDump(game)
 
 
 def solve_puzzle(game):
@@ -86,4 +79,8 @@ def solve_puzzle(game):
 
 
 if __name__ == "__main__":
-    pass
+    # Trivially smoke tests the game.
+    with open("./test_levels/random_0000.json", "rb") as inLevel:
+        initState = json.load(inLevel)
+    curGame = new_game(initState)
+    print(curGame)
