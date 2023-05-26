@@ -66,6 +66,9 @@ class SnekobanGame:
         self.gameFinished = False
         self.winLock = lockOnWin
 
+        # And ensure game isn't already over
+        self.updateGameState()
+
 
     def getPosActions(self):
         """
@@ -259,10 +262,13 @@ class SnekobanGame:
         return finalString
     
     ########## MEMORYLESS METHODS #########
-    @staticmethod
-    def deriveMemorylessGameState(initState):
+    @classmethod
+    def deriveMemorylessGameState(cls, initState):
+        """
+        A memoryless implementation of the game initialization method.
+        """
         # Derive initial state
-        curState = __class__.convertCannonicalToNative(initState)
+        curState = cls.convertCannonicalToNative(initState)
 
         # And now add some additional elements to maintain proper states
         curState = {**curState,
@@ -270,10 +276,24 @@ class SnekobanGame:
                     "curScore": 0,
                     "gameFinished" : False}
         
+        # Check for initial win
+        curScore = 0
+        for compLoc in curState["boxes"]:
+            if compLoc in curState["targets"]:
+                curScore += 1
+        
+        # Then update state
+        curState["curScore"] = curScore
+        if len(curState["targets"]) > 0 and curScore == len(curState["boxes"]):
+            curState["gameFinished"] = True
+        
         return curState
     
     @classmethod
     def memorylessGameUpdate(cls, curState, move):
+        """
+        A memoryless implementation of the game update method.
+        """
         # copy object to new spot for lab
         newState = {"walls": curState["walls"].copy(),
                     "player": curState["player"],
@@ -320,6 +340,9 @@ class SnekobanGame:
 
     @staticmethod
     def memorylessCannonicalDump(curState):
+        """
+        A memoryless implementation of the native to cannonical dump method.
+        """
         # initialize return array
         numRows, numCols = curState["dimensions"]
         cannonicalForm = [[list() for _ in range(numCols)] for _ in range(numRows)]
@@ -344,3 +367,23 @@ class SnekobanGame:
                     cannonicalForm[rowInd][colInd].append("player")
 
         return cannonicalForm
+    
+    @staticmethod
+    def generateStateTuple(playerLoc, compLoc):
+        """
+        The most important aspects of the game that determine whether or not
+        a state has been visited are:
+
+            1) The player's location
+        
+            2) The location of the computers
+
+        Everything else is essentially redundant as it never changes across
+        objects, so we only need to cache these two elements by converting
+        them into a tuple as so: (playerLoc, (comp_locs, ...))
+
+        Args:
+            playerLoc: The location of the player.
+            compLoc: The location of the computers.
+        """
+        return (playerLoc, tuple(compLoc))

@@ -65,6 +65,36 @@ def dump_game(game):
     return SnekobanGame.memorylessCannonicalDump(game)
 
 
+def backtrackMoves(game, parentDict):
+    """
+    Given the final state and a dictionary containing references to all parent
+    states, calculates the moves required to reach the final state from the
+    origin state.
+    """
+    # Find the path first
+    curNode = sWrapper(game)
+    path = [curNode[0]]
+    while parentDict.get(curNode, None) is not None:
+        path.append(parentDict[curNode][0])
+        curNode = parentDict[curNode]
+    winPath = list(reversed(path))
+
+    # And then convert that into a list of moves to make
+    findDelta = lambda lPos, rPos: tuple((rElem-lElem for (lElem, rElem) in zip(lPos, rPos)))
+    revDeltaLookup = {(-1, 0): "up",
+                      (1, 0): "down",
+                      (0, 1): "right",
+                      (0, -1): "left"}
+    return [revDeltaLookup[findDelta(winPath[pInd], winPath[pInd+1])] for pInd in range(len(winPath)-1)]
+
+
+def sWrapper(game):
+    """
+    Small wrapper over tuple indicator that is in the snekoban class
+    """
+    return SnekobanGame.generateStateTuple(game["player"], game["boxes"])
+
+
 def solve_puzzle(game):
     """
     Given a game representation (of the form returned from new game), find a
@@ -75,12 +105,40 @@ def solve_puzzle(game):
 
     If the given level cannot be solved, return None.
     """
-    raise NotImplementedError
+    # if game is finished, no point in trying
+    if game["gameFinished"]:
+        return []
 
+    stateQueue = [game]
+    visited = {sWrapper(game)}
+    parents = dict()
+
+    while stateQueue:
+        curState = stateQueue.pop(0)
+
+        for neighborMove in ["up", "down", "left", "right"]:
+            nState = SnekobanGame.memorylessGameUpdate(curState, neighborMove)
+            if sWrapper(nState) in visited:
+                continue
+            
+            # otherwise if unvisited...
+            visited.add(sWrapper(nState))
+            parents[sWrapper(nState)] = sWrapper(curState)
+            stateQueue.append(nState)
+
+            # just in case we can short circuit for the win here
+            if nState["gameFinished"]:
+                return backtrackMoves(nState, parents)
+            
+    # no possible path found
+    return None
 
 if __name__ == "__main__":
     # Trivially smoke tests the game.
-    with open("./test_levels/random_0000.json", "rb") as inLevel:
+    with open("./test_levels/unit_victory_double_target.json", "rb") as inLevel:
         initState = json.load(inLevel)
     curGame = new_game(initState)
-    print(curGame)
+    
+    # And now test if solving works at all
+    res = solve_puzzle(curGame)
+    print(res)
