@@ -158,17 +158,56 @@ def ingredient_mixes(flat_recipes):
     the flat recipes make a certain ingredient as part of a recipe, compute all
     combinations of the flat recipes.
     """
-    raise NotImplementedError
+    # initialize our final value
+    curCombs = flat_recipes[0].copy()
+
+    # And then create combinations iteratively by chaining to our current combinations
+    # continuously
+    for combInd in range(1, len(flat_recipes)):
+        tempCombs = list()
+        for newElemDict in flat_recipes[combInd]:
+            finCopy = [make_grocery_list([curCombs[elemInd], newElemDict]) for elemInd in range(len(curCombs))]
+            tempCombs.extend(finCopy)
+        curCombs = tempCombs
+    
+    return curCombs
 
 
-def all_flat_recipes(recipes, food_item):
+def all_flat_recipes(recipes, food_item, to_ignore = []):
     """
     Given a list of recipes and the name of a food item, produce a list (in any
     order) of all possible flat recipes for that category.
 
     Returns an empty list if there are no possible recipes
     """
-    raise NotImplementedError
+    aDict = make_atomic_costs(recipes)
+    rDict = make_recipe_book(recipes) 
+    ignoreSet = set(to_ignore)
+
+    def recursive_recipe_enumerator(food_item):
+        '''
+        Unlike before, we create a new function so as to not clutter the 
+        minimum cost / minimum recipe function which shared characteristics.
+        This simply enumerates all total paths to the end, but the DFS 
+        characteristic will remain the same in the end.
+        '''
+        # recursive edge cases
+        if food_item in ignoreSet or (food_item not in aDict and
+                                        food_item not in rDict):
+            return []
+        elif food_item in aDict:
+            return [{food_item: 1}]
+
+        totWays = list()
+        for posWays in rDict[food_item]: # list of potential recipes
+            curWay = list()
+            for subItem, dup in posWays: # each tuple of (item, count_needed)
+                subRecipes = recursive_recipe_enumerator(subItem)
+                curWay.append([scale_recipe(rec, dup) for rec in subRecipes])
+            totWays.extend(ingredient_mixes(curWay))
+        return totWays
+    
+    return recursive_recipe_enumerator(food_item)
 
 
 if __name__ == "__main__":
@@ -212,4 +251,17 @@ if __name__ == "__main__":
                                                                                    'cheese',
                                                                                    ['cow'])))
     
-    # 7.0 smoke test all flat recipe counter
+    # 7.1 smoke test our combinations creator
+    print("\n========= PART 7 ==========\n")
+    cake_recipes = [{"cake": 1}, {"gluten free cake": 1}]
+    icing_recipes = [{"vanilla icing": 1}, {"cream cheese icing": 1}]
+    topping_recipes = [{"sprinkles": 20}]
+    print("Testing the mixing function with:")
+    print("\tCakes : {}".format(ingredient_mixes([cake_recipes])))
+    print("\tCakes and Icing : {}".format(ingredient_mixes([cake_recipes, icing_recipes])))
+    print("\tCakes, Icing, and Toppings : {}".format(ingredient_mixes([cake_recipes, icing_recipes, topping_recipes])),
+          end = '\n\n')
+    
+    print("Testing whether we can return all flat recipes for a known recipe list:")
+    for rec in all_flat_recipes(example_recipes, 'burger'):
+        print("\t{}".format(rec))
