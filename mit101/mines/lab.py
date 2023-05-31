@@ -6,7 +6,6 @@
 
 import typing
 import doctest
-from functools import lru_cache
 
 # NO ADDITIONAL IMPORTS ALLOWED!
 
@@ -52,34 +51,11 @@ def new_game_2d(num_rows, num_cols, bombs):
         [True, True, True, True]
         [True, True, True, True]
     state: ongoing
+    toDigCnt: 5
+
     """
-    # First create our hidden state board
-    hidden = [[True]*num_cols for _ in range(num_rows)]
+    return new_game_nd((num_rows, num_cols), bombs)
 
-    # And then initialize our bomb board with bomb positions
-    board = [[0]*num_cols for _ in range(num_rows)]
-    for bombPos in bombs:
-        board[bombPos[0]][bombPos[1]] = '.'
-    
-    # And update the neighbor counters accordingly
-    for rowInd in range(num_rows):
-        for colInd in range(num_cols):
-            # Skip any points that aren't necessary to fill
-            if not board[rowInd][colInd] == 0:
-                continue
-
-            for neighbor in get_neighbor_coords((num_rows, num_cols), 
-                                                (rowInd, colInd)):
-                if board[neighbor[0]][neighbor[1]] == ".":
-                    board[rowInd][colInd] += 1
-    return {
-        "dimensions": (num_rows, num_cols),
-        "board": board,
-        "hidden": hidden,
-        "state": "ongoing",
-    }
-
-@lru_cache
 def get_deltas_ndgame(num_dims):
     '''
     Given an n-dimensional game, generates the necessary deltas to check
@@ -113,7 +89,6 @@ def get_deltas_ndgame(num_dims):
 
     return finCombs
 
-@lru_cache
 def get_neighbor_coords(dimensions, curPos):
     '''
     Given the game, returns a list of tuples representing the neighbors that
@@ -171,7 +146,8 @@ def dig_2d(game, row, col):
     ...                   ['.', '.', 1, 0]],
     ...         'hidden': [[True, False, True, True],
     ...                  [True, True, True, True]],
-    ...         'state': 'ongoing'}
+    ...         'state': 'ongoing',
+    ...         'toDigCnt': 4}
     >>> dig_2d(game, 0, 3)
     4
     >>> dump(game)
@@ -183,13 +159,15 @@ def dig_2d(game, row, col):
         [True, False, False, False]
         [True, True, False, False]
     state: victory
+    toDigCnt: 0
 
     >>> game = {'dimensions': [2, 4],
     ...         'board': [['.', 3, 1, 0],
     ...                   ['.', '.', 1, 0]],
     ...         'hidden': [[True, False, True, True],
     ...                  [True, True, True, True]],
-    ...         'state': 'ongoing'}
+    ...         'state': 'ongoing',
+    ...         'toDigCnt': 4}
     >>> dig_2d(game, 0, 0)
     1
     >>> dump(game)
@@ -201,37 +179,9 @@ def dig_2d(game, row, col):
         [False, False, True, True]
         [True, True, True, True]
     state: defeat
+    toDigCnt: 4
     """
-    # Game already finished
-    if game["state"] in {"defeat", "victory"}:
-        return 0
-
-    # Check if we landed on a bomb or selected something already shown
-    if game["board"][row][col] == ".":
-        game["hidden"][row][col] = False
-        game["state"] = "defeat"
-        return 1
-    elif not game["hidden"][row][col]:
-        return 0
-
-    # Mine current position and neighbors to reveal any new points
-    game["hidden"][row][col] = False
-    revealed = 1
-
-    if game["board"][row][col] == 0:
-        for neighbor_pos in get_neighbor_coords(game["dimensions"], (row, col)):
-            revealed += dig_2d(game, *neighbor_pos)
-
-    # After that, we can check for a win and return the number of revealed blocks
-    hidden_squares = 0
-    for rowInd in range(game["dimensions"][0]):
-        for colInd in range(game["dimensions"][1]):
-            if not game["board"][rowInd][colInd] == '.' and game["hidden"][rowInd][colInd]:
-                hidden_squares += 1
-    if hidden_squares == 0:
-        game["state"] = "victory"
-
-    return revealed
+    return dig_nd(game, (row, col))
 
 
 def render_2d_locations(game, xray=False):
@@ -268,16 +218,7 @@ def render_2d_locations(game, xray=False):
     ...                   [True, True, True, False]]}, True)
     [['.', '3', '1', ' '], ['.', '.', '1', ' ']]
     """
-    numRows, numCols = game['dimensions']
-    gameBoard = [['_']*numCols for _ in range(numRows)]
-
-    for rowInd in range(numRows):
-        for colInd in range(numCols):
-            if xray or not game['hidden'][rowInd][colInd]:
-                curElem = str(game['board'][rowInd][colInd])
-                gameBoard[rowInd][colInd] = curElem if curElem != "0" else " "
-
-    return gameBoard
+    return render_nd(game, xray)
 
 
 def render_2d_board(game, xray=False):
