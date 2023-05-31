@@ -18,3 +18,7 @@ resources/
 
 # Snekoban lab ignores
 puzzles/
+
+# Mines lab intrinsic ignores
+ui2d/
+uind/
