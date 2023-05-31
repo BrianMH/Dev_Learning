@@ -383,6 +383,31 @@ def get_nd_pos_generator(dimensions):
     # yield final tuple afterward
     yield tuple(maxLims)
 
+
+def reduce(iterable, func, initial = None):
+    '''
+    A pretty lazy implementation of the reduce function already available in a Python
+    package. Pretty much does what it says: reduces the list down to a single value 
+    given a function and potentially including an initial value.
+    '''
+    lVal, rVal = None, None
+    if initial is not None:
+        lVal = initial
+
+    for val in iterable:
+        # if lval is empty, load it and do nothing until rval is also loaded
+        if lVal is None:
+            lVal = val
+            continue
+        elif rVal is None:
+            rVal = val
+        
+        lVal = func(lVal, rVal)
+        rVal = None
+
+    return lVal
+
+
 def new_game_nd(dimensions, bombs):
     """
     Start a new game.
@@ -409,14 +434,17 @@ def new_game_nd(dimensions, bombs):
         [[True, True], [True, True], [True, True], [True, True]]
         [[True, True], [True, True], [True, True], [True, True]]
     state: ongoing
+    toDigCnt: 13
     """
     # First create our arrays for future use
     hidden = create_nd_array(dimensions, True)
+    hidden_nonbombs = reduce(dimensions, lambda x, y: x*y)
 
     # And then initialize our bomb board with bomb positions
     board = create_nd_array(dimensions, 0)
     for bombPos in bombs:
         set_element(board, bombPos, '.')
+        hidden_nonbombs -= 1
     
     # And update the neighbor counters accordingly
     for posTup in get_nd_pos_generator(dimensions):
@@ -433,6 +461,7 @@ def new_game_nd(dimensions, bombs):
         "board": board,
         "hidden": hidden,
         "state": "ongoing",
+        "toDigCnt": hidden_nonbombs,
     }
 
 
@@ -463,7 +492,8 @@ def dig_nd(game, coordinates):
     ...                [True, True]],
     ...               [[True, True], [True, True], [True, True],
     ...                [True, True]]],
-    ...      'state': 'ongoing'}
+    ...      'state': 'ongoing',
+    ...      'toDigCnt': 13}
     >>> dig_nd(g, (0, 3, 0))
     8
     >>> dump(g)
@@ -475,6 +505,7 @@ def dig_nd(game, coordinates):
         [[True, True], [True, False], [False, False], [False, False]]
         [[True, True], [True, True], [False, False], [False, False]]
     state: ongoing
+    toDigCnt: 5
     >>> g = {'dimensions': (2, 4, 2),
     ...      'board': [[[3, '.'], [3, 3], [1, 1], [0, 0]],
     ...                [['.', 3], [3, '.'], [1, 1], [0, 0]]],
@@ -482,7 +513,8 @@ def dig_nd(game, coordinates):
     ...                [True, True]],
     ...               [[True, True], [True, True], [True, True],
     ...                [True, True]]],
-    ...      'state': 'ongoing'}
+    ...      'state': 'ongoing',
+    ...      'toDigCnt': 13}
     >>> dig_nd(g, (0, 0, 1))
     1
     >>> dump(g)
@@ -494,6 +526,7 @@ def dig_nd(game, coordinates):
         [[True, False], [True, False], [True, True], [True, True]]
         [[True, True], [True, True], [True, True], [True, True]]
     state: defeat
+    toDigCnt: 13
     """
     # Game already finished
     if game["state"] in {"defeat", "victory"}:
@@ -510,18 +543,14 @@ def dig_nd(game, coordinates):
     # Mine current position and neighbors to reveal any new points
     set_element(game["hidden"], coordinates, False)
     revealed = 1
+    game["toDigCnt"] -= 1
 
     if get_element(game["board"], coordinates) == 0:
         for neighbor in get_neighbor_coords(game["dimensions"], coordinates):
             revealed += dig_nd(game, neighbor)
 
-    # After that, we can check for a win and return the number of revealed blocks
-    hidden_squares = 0
-    for posCoord in get_nd_pos_generator(game["dimensions"]):
-        if not get_element(game["board"], posCoord) == "." and get_element(game["hidden"], posCoord):
-            hidden_squares += 1
-
-    if hidden_squares == 0:
+    # After that, we can check for a win given the toDigCnt
+    if game["toDigCnt"] == 0:
         game["state"] = "victory"
 
     return revealed
@@ -603,6 +632,11 @@ if __name__ == "__main__":
 
     # Test the generator for proper generator control
     print("\nSmoke testing the matrix loc generator...\n")
-    # print(list(get_nd_pos_generator((2, 4, 2))))
     all_pos_tuples = get_nd_pos_generator((2, 4, 2))
     assert len(list(all_pos_tuples)) == 2*4*2, "Generator produces wrong ouputs!"
+
+    # Tests our silly version of the reduce function that exists
+    print("\nSmoke testing the reduce function...")
+    relList = [1, 2, 3, 4, 5, 6, 7]
+    assert reduce(relList, lambda x, y: x+y) == reduce(relList, lambda x, y: x+y, initial = 0) == sum(relList)
+    assert reduce(relList, lambda x, y: x*y) == reduce(relList, lambda x, y: x*y, initial = 1) == (7*6*5*4*3*2)
