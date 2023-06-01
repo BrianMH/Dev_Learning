@@ -78,7 +78,7 @@ def short_circuit_formula(formula: CNF) -> tuple[dict, CNF, bool]:
     return forced_assumptions, new_formula, True if forced_assumptions else False
 
 
-def satisfying_assignment(formula: CNF, solTerms:dict = dict(), cleanCNF: bool = True) -> dict:
+def satisfying_assignment(formula: CNF, solTerms:dict|None = None, cleanCNF: bool = True) -> dict:
     """
     Find a satisfying assignment for a given CNF formula.
     Returns that assignment if one exists, or None otherwise.
@@ -93,6 +93,9 @@ def satisfying_assignment(formula: CNF, solTerms:dict = dict(), cleanCNF: bool =
     # cleans the CNF on firsr run
     if cleanCNF:
         formula = remove_redundancy(formula)
+    # prepares our sol dict on first run
+    if solTerms is None:
+        solTerms = dict()
 
     # attempt to short-circuit arguments by finding singleton terms until no longer possible
     sc_working = True
@@ -166,13 +169,233 @@ def update_formula_with_assumption(formula: CNF, assumptions: list[tuple[str, bo
     return updated_formula
 
 
+def cache(func: callable) -> callable:
+    '''
+    Basic implementation of a cache for a function.
+    '''
+    cache = dict()
+    def function_caching(*args, **kwargs):
+        if kwargs:
+            indixer = args + tuple(((key, val) for key, val in kwargs))
+        else:
+            indixer = args
+
+        if indixer in cache:
+            return cache[indixer]
+
+        return func(*args, **kwargs)
+    return function_caching
+
+
+@cache
+def get_var_name(row: int, col: int, value: int) -> str:
+    """
+    The name of the variables for the sudoku SAT solver are dependent only
+    on the position and the potential value it will take. This function
+    should run relatiely quickly enough as it always returns an immutable
+    string representing the key that should be used in the CNF.
+
+    Args:
+        row: The row of the current element
+        col: The column of the current element
+        value: The value that the position should take
+    """
+    return "{}@{},{}".format(value, row, col)
+
+
+def sqrt(val: int) -> int:
+    """
+    No imports means no imports I guess. This is just a naive implementation of
+    the sqrt function that can be found in the math library. It only supports
+    perfect squares as they will be the only elements that we will work with.
+    """
+    curGuess = 0
+    while True:
+        if curGuess**2 == val:
+            return curGuess
+        elif curGuess**2 > val: # over the bound. root doesn't exist
+            raise ValueError("Value is not a perfect square.")
+        
+        curGuess += 1
+
+
+def codify_current_board_positions(sudoku_board) -> CNF:
+    """
+    Generates a CNF formula corresponding to the positions on the board which
+    already have proper elements in place. In a CNF form, this is trivially 
+    done with singletons clauses with the elements that are properly in place.
+    """
+    CNF = list()
+
+    for rowInd in range(len(sudoku_board)):
+        for colInd in range(len(sudoku_board[0])):
+            if sudoku_board[rowInd][colInd] != 0:
+                CNF.append([(get_var_name(rowInd, colInd, sudoku_board[rowInd][colInd]), 
+                             True)])
+                
+    return CNF
+
+
+def codify_cell_uniqueness(board_size: int) -> CNF:
+    """
+    For a sudoku board of size (board_size X board_size), codifying cell 
+    uniqueness amounts to declaring that, for every cell index, there
+    should be at least one value, but there cannot exist a pair of values
+    for the same cell.
+
+    Args:
+        board_size: The size of the square board being evaluated.
+    """
+    maxVal = board_size
+    CNF = list()
+
+    for rowInd in range(board_size):
+        for colInd in range(board_size):
+            # Exists implies (1 or 2 or 3 or ...)
+            existsClause = list()
+            for candValue in range(1, maxVal+1):
+                existsClause.append((get_var_name(rowInd, colInd, candValue), True))
+
+            # Duplicate clause implies (not 1 or not 2) and (not 1 or not 3) and ...
+            # In other words, the predicate is false if a pair exists where both are true.
+            dupClauses = list()
+            for candValue in range(1, maxVal+1):
+                for candValue2 in range(candValue+1, maxVal+1):
+                    clauseL = (get_var_name(rowInd, colInd, candValue), False)
+                    clauseR = (get_var_name(rowInd, colInd, candValue2), False)
+                    dupClauses.append([clauseL, clauseR])
+
+            # And then add them to our CNF
+            CNF.append(existsClause)
+            CNF.extend(dupClauses)
+    
+    return CNF
+
+
+def codify_row_validity(board_size: int) -> CNF:
+    """{
+    Codifying the validity of a sudoku row in CNF form is a bit weird, but this
+    is functionally equivalent to claiming that each unique value must exist
+    in the row, but it cannot exist in more than one location.
+
+    Args:
+        board_size: The size of the square board being evaluated
+    """
+    maxVal = board_size
+    CNF = list()
+
+    for rowInd in range(board_size): # for every row
+        for candVal in range(1, maxVal+1): # every cand value
+            existsClause = list()
+            for colInd in range(board_size): # it exists somewhere in the row
+                existsClause.append((get_var_name(rowInd, colInd, candVal), True))
+
+            dupClauses = list()
+            for colInd in range(board_size): # but not more than one column value
+                for colIndR in range(colInd+1, board_size):
+                    clauseL = (get_var_name(rowInd, colInd, candVal), False)
+                    clauseR = (get_var_name(rowInd, colIndR, candVal), False)
+                    dupClauses.append([clauseL, clauseR])
+
+            # and then update CNF
+            CNF.append(existsClause)
+            CNF.extend(dupClauses)
+
+    return CNF
+
+
+def codify_column_validity(board_size: int) -> CNF:
+    """
+    Like in the row case, we want, for every column, that there exist one
+    particular value in any of the rows (it exists in the column, basically).
+    But, we do not want duplicates, so we also make the claim that one 
+    value cannot exist in more than one row.
+    """
+    maxVal = board_size
+    CNF = list()
+
+    for colInd in range(board_size):
+        for candVal in range(1, maxVal+1):
+            existsClause = list()
+            for rowInd in range(board_size): # it exists somewhere in the column
+                existsClause.append((get_var_name(rowInd, colInd, candVal), True))
+
+            dupClauses = list()
+            for rowInd in range(board_size): # but not more than one row value
+                for rowIndR in range(rowInd+1, board_size):
+                    clauseL = (get_var_name(rowInd, colInd, candVal), False)
+                    clauseR = (get_var_name(rowIndR, colInd, candVal), False)
+                    dupClauses.append([clauseL, clauseR])
+
+            # and then update CNF
+            CNF.append(existsClause)
+            CNF.extend(dupClauses)
+
+    return CNF
+
+
+def get_board_submatrices(board_size: int) -> list[list[tuple[int, int]]]:
+    """
+    Returns all submatrices as a list of the points that are contained within
+    them in a larger list.
+    """
+    submatLen = sqrt(board_size) # submats are of size sqrt(n) x sqrt(n)
+    numDivs = board_size // submatLen   # number of subdivisions along single axis
+    originVals = list(range(board_size))[::board_size//numDivs]
+    originTups = [(lVal, rVal) for lVal in originVals for rVal in originVals]
+
+    # now go through and generate lists corresponding to each submatrix
+    submatEntries = list()
+    for rOrigin, cOrigin in originTups:
+        curSubmatPts = list()
+        for rowOff in range(submatLen):
+            for colOff in range(submatLen):
+                curSubmatPts.append((rOrigin+rowOff, cOrigin+colOff))
+
+        submatEntries.append(curSubmatPts)
+    
+    return submatEntries
+
+
+def codify_submatrix_validity(board_size: int) -> CNF:
+    """
+    This particular verification is a bit harder. Like before, our constant is that
+    given the submatrices within the sudoku board, the values all exist once but not
+    in more than one cell in the submatrix. However, the submatrix isn't that easy
+    to index clearly, so this will require some help from other functions.
+    """
+    maxVal = board_size
+    CNF = list()
+
+    for submatPts in get_board_submatrices(board_size):
+        for candVal in range(1, maxVal+1):
+            existsClause = list()
+            for curPt in submatPts:
+                existsClause.append((get_var_name(*curPt, candVal), True))
+
+            dupClauses = list()
+            for lInd, curPt in enumerate(submatPts):
+                for curPtR in submatPts[lInd+1:]:
+                    clauseL = (get_var_name(*curPt, candVal), False)
+                    clauseR = (get_var_name(*curPtR, candVal), False)
+                    dupClauses.append([clauseL, clauseR])
+
+            # and then update CNF
+            CNF.append(existsClause)
+            CNF.extend(dupClauses)
+    
+    return CNF
+
 def sudoku_board_to_sat_formula(sudoku_board):
     """
     Generates a SAT formula that, when solved, represents a solution to the
     given sudoku board.  The result should be a formula of the right form to be
     passed to the satisfying_assignment function above.
     """
-    raise NotImplementedError
+    board_size = len(sudoku_board)
+    return (codify_column_validity(board_size) + codify_row_validity(board_size) +
+            codify_cell_uniqueness(board_size) + codify_submatrix_validity(board_size) +
+            codify_current_board_positions(sudoku_board))
 
 
 def assignments_to_sudoku_board(assignments, n):
@@ -184,9 +407,33 @@ def assignments_to_sudoku_board(assignments, n):
     If the given assignments correspond to an unsolvable board, return None
     instead.
     """
-    raise NotImplementedError
+    # early termination for unsolvable items
+    if assignments is None:
+        return None
+
+    # we only care about the positive attributes
+    posAssignments = [val_name for val_name in assignments.keys() if assignments[val_name]]
+    finalBoard = [[None]*n for _ in range(n)]
+    resExtractor = lambda val_name: [int(val) for val in val_name.replace('@', ',').split(',')]
+
+    for assignment in posAssignments:
+        newVal, newRow, newCol = resExtractor(assignment)
+        finalBoard[newRow][newCol] = newVal
+
+    return finalBoard
 
 
 if __name__ == "__main__":
     _doctest_flags = doctest.NORMALIZE_WHITESPACE | doctest.ELLIPSIS
     doctest.testmod(optionflags=_doctest_flags)
+
+    # Tests one of the simpler sudoku boards for visual validity
+    import json
+    with open("./puzzles/sudoku_6.json", 'rb') as inFile:
+        testPuzzle = json.load(inFile)
+
+    curCNF = sudoku_board_to_sat_formula(testPuzzle)
+    puzSol = satisfying_assignment(curCNF)
+    res = assignments_to_sudoku_board(puzSol, len(testPuzzle))
+    for row in res:
+        print(row)
