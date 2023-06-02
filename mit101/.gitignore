@@ -11,6 +11,7 @@ test_images/
 test_results/
 test_levels/
 test_recipes/
+testing_data/
 
 # Bacon lab intrinsic ignores (mostly web dev stuff)
 ui/
