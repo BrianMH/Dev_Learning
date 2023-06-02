@@ -26,7 +26,7 @@ def candidate_generator(formula: CNF):
     """
     seenTerms = set()
 
-    for clause in reversed(formula):
+    for clause in formula:
         for term in clause:
             if term not in seenTerms:
                 yield term
@@ -46,9 +46,12 @@ def remove_redundancy(formula: CNF) -> CNF:
     newFormula = list()
     for clause in formula:
         curClauseSet = set()
+        curClause = list()
         for term in clause:
-            curClauseSet.add(term)
-        newFormula.append(tuple(curClauseSet))
+            if term not in curClauseSet:
+                curClause.append(term)
+                curClauseSet.add(term)
+        newFormula.append(curClause)
 
     return newFormula
 
@@ -78,10 +81,20 @@ def short_circuit_formula(formula: CNF) -> tuple[dict, CNF, bool]:
     return forced_assumptions, new_formula, True if forced_assumptions else False
 
 
-def satisfying_assignment(formula: CNF, solTerms:dict|None = None, cleanCNF: bool = True) -> dict:
+def satisfying_assignment(formula: CNF, killCount = 10) -> dict:
     """
     Find a satisfying assignment for a given CNF formula.
     Returns that assignment if one exists, or None otherwise.
+
+    TODO: Fix this to use proper non-chronological backtracking. The only reason
+          the current method works is because sudoku puzzles naturally can be
+          approached through many methods, but often times a few "anchor points"
+          pretty much determine the whole puzzle so having a significant number of
+          conflicts is usually a sign of a dead branch. Secondly, the tests provided
+          do not actually have a significant number of branches that lead to many
+          conflicts but have a solution somewhere in the unexplored tree. Designing
+          an example that it fails to attain is a bit difficult, but something tells 
+          me that it does technically exist.
 
     >>> satisfying_assignment([])
     {}
@@ -90,32 +103,54 @@ def satisfying_assignment(formula: CNF, solTerms:dict|None = None, cleanCNF: boo
     True
     >>> satisfying_assignment([[('a', True)], [('a', False)]])
     """
-    # cleans the CNF on firsr run
-    if cleanCNF:
-        formula = remove_redundancy(formula)
-    # prepares our sol dict on first run
-    if solTerms is None:
-        solTerms = dict()
+    # first perform some simple function pre-processing
+    formula = remove_redundancy(formula)
+    scWorking = True
+    solTerms = dict()
+    while scWorking:
+        scTerms, formula, scWorking = short_circuit_formula(formula)
+        solTerms.update(scTerms)
 
-    # attempt to short-circuit arguments by finding singleton terms until no longer possible
-    sc_working = True
-    while sc_working:
-        sc_terms, formula, sc_working = short_circuit_formula(formula)
-        solTerms.update(sc_terms)
-
-    # edge cases with trivially True/False statements
+    # early termination
     if len(formula) == 0:
         return solTerms
     elif any([len(clause) == 0 for clause in formula]):
         return None
+    
+    # Now process the formula using some heuristics
+    agenda = [(formula, candidate_generator(formula), solTerms)]
+    conflictCnt = 0
+    while agenda:
+        # get next action and process
+        if conflictCnt == killCount:
+            agenda = [agenda[0]]
+            conflictCnt = 0
+        curFormula, curGen, curSolTerms = agenda.pop()
 
-    # make an assumption about the CNF and recurse on the values
-    for pot_var, pot_value in candidate_generator(formula):
-        potSol = satisfying_assignment(update_formula_with_assumption(formula, [(pot_var, pot_value)]), 
-                                       {**solTerms, pot_var:pot_value},
-                                       False)
-        if potSol is not None:
-            return potSol
+        # make a step
+        nextAssumption = next(curGen, None)
+        if nextAssumption is None:
+            continue    # no more children to check out. this branch is dead
+        else:
+            agenda.append((curFormula, curGen, curSolTerms))
+        newFormula = update_formula_with_assumption(curFormula, [nextAssumption])
+        newSolTerms = {**curSolTerms, nextAssumption[0]:nextAssumption[1]}
+
+        # reduce to simplest form prior to next iter
+        scWorking = True
+        while scWorking:
+            scTerms, newFormula, scWorking = short_circuit_formula(newFormula)
+            newSolTerms.update(scTerms)
+
+        # early termination
+        if len(newFormula) == 0:
+            return newSolTerms
+        elif any([len(clause) == 0 for clause in newFormula]):
+            conflictCnt += 1
+            continue
+
+        # now we can add our simplified predicate back to the agenda for processing
+        agenda.append((newFormula, candidate_generator(newFormula), newSolTerms))
 
     return None
 
@@ -427,13 +462,10 @@ if __name__ == "__main__":
     _doctest_flags = doctest.NORMALIZE_WHITESPACE | doctest.ELLIPSIS
     doctest.testmod(optionflags=_doctest_flags)
 
-    # Tests one of the simpler sudoku boards for visual validity
-    import json
-    with open("./puzzles/sudoku_6.json", 'rb') as inFile:
+    with open('./puzzles/sudoku_6.json', 'rb') as inFile:
+        import json
         testPuzzle = json.load(inFile)
 
-    curCNF = sudoku_board_to_sat_formula(testPuzzle)
-    puzSol = satisfying_assignment(curCNF)
-    res = assignments_to_sudoku_board(puzSol, len(testPuzzle))
-    for row in res:
-        print(row)
+    cnf = sudoku_board_to_sat_formula(testPuzzle)
+    res = satisfying_assignment(cnf)
+    print(res)
