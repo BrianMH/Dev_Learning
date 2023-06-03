@@ -191,6 +191,26 @@ def test_delete():
     assert sorted(list(t)) == expected
 
 
+def test_nested_insert_delete():
+    # Make some very simple test cases
+    curTrie = lab.PrefixTree()
+
+    # nested insertion + containment + deletion
+    wordsToAdd = {'test':1, 'testing':2, 'tester':3, 'random':4, 'randomtest':5, 'r':6, 'ra':7,
+                  'dom':8, 't':9, 'a':10, 'tes':11, 'rand':12}
+    for word, val in wordsToAdd.items():
+        curTrie[word] = val
+        assert word in [word for word,_ in curTrie], "Failed to find \"{}\"".format(word)
+        assert curTrie[word] == val, "Batch assignment failed"
+        assert word in curTrie, "Could not find added word within the tree."
+    for word, _ in wordsToAdd.items():
+        del curTrie[word]
+        assert word not in [word for word,_ in curTrie], "Iterator providing incorrect results."
+        assert word not in curTrie, "Word still in trie after deletion."
+    for element in curTrie:
+        assert False, "There must be no elements in tree after deletion."
+
+
 def test_word_frequencies():
     # small test
     l = lab.word_frequencies('toonces was a cat who could drive a car very fast until he crashed.')
@@ -204,6 +224,24 @@ def test_word_frequencies():
     assert dictify(l) == read_expected('8.pickle')
 
 
+def test_word_frequencies_lorem_ipsum():
+    # needed for this submodule
+    from text_tokenize import tokenize_sentences
+    from collections import Counter
+    
+    # read file and preprocess
+    with open('./testing_data/lorem_ipsum.txt', 'r') as inFile:
+        lIpsum = inFile.read()
+        lToks = [sentence.split() for sentence in tokenize_sentences(lIpsum)]
+        lToks = [tok for sentence in lToks for tok in sentence]
+
+    # Now work with the tokens to verify their results
+    l = lab.word_frequencies(lIpsum)
+    expected = Counter(lToks)
+    for tok in lToks:
+        assert tok in l, "Word [{}] not found in prefix tree".format(tok)
+        assert l[tok] == expected[tok], "Incorrect word count detected from prefix tree."
+
 
 @pytest.mark.parametrize('bigtext', ['holmes', 'earnest', 'frankenstein'])
 def test_big_corpora(bigtext):
@@ -214,6 +252,38 @@ def test_big_corpora(bigtext):
         w_e = read_expected('%s_words.pickle' % bigtext)
 
         assert w_e == dictify(w), 'word frequencies prefix tree does not match for %s' % bigtext
+
+
+def test_autocomplete_trivial():
+    # Tests autocomplete on some basic trees
+    t = lab.word_frequencies("bat bark bar bat")
+    result = lab.autocomplete(t, 'ba', 1)
+    assert set(result) == {"bat"}
+
+    result = lab.autocomplete(t, 'ba', 2)
+    assert set(result) in [{'bat', 'bar'}, {'bat', 'bark'}]
+
+    result = lab.autocomplete(t, 'be', 2)
+    assert result == []
+
+
+def test_autocomplete_lorem_ipsum():
+    # Tests autocomplete on a decently large corpus
+    from text_tokenize import tokenize_sentences
+    from collections import Counter
+    
+    # read file and preprocess
+    with open('./testing_data/lorem_ipsum.txt', 'r') as inFile:
+        lIpsum = inFile.read()
+        lToks = [sentence.split() for sentence in tokenize_sentences(lIpsum)]
+        lToks = [tok for sentence in lToks for tok in sentence]
+        lTokCntr = Counter(lToks)
+
+    # Now perform testing
+    t = lab.word_frequencies(lIpsum)
+    expected = set([word for word,_ in lTokCntr.most_common(5)])
+    result = lab.autocomplete(t, '', 5)
+    assert set(result) == expected
 
 
 def test_autocomplete_small():

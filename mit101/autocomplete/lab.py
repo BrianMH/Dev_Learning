@@ -20,7 +20,29 @@ class PrefixTree:
         self.children : dict[str, 'PrefixTree'] = dict()
 
 
-    def __setitem__(self, key: str, value):
+    def incrementValue(self, key: str, amount: int) -> None:
+        """
+        Increments the value of a certain key by a certain amount. Note that
+        if the stored value is not a numerical value or a class that can 
+        add integers to itself, this will throw an exception.
+        For any key that doesn't already exist. This simply creates it.
+        """
+        if not isinstance(key, str):
+            raise TypeError("PrefixTree only accepts string keys.")
+        
+        # Performs the operation in one step
+        # (This can be optimized by returning the parent instead and adjusting 
+        #  the subkey from that)
+        relNode = self._getNode_(self, key)
+        if relNode is None:
+            self[key] = amount
+        elif relNode.value is None:
+            relNode.value = amount
+        else:
+            relNode.value += amount
+
+
+    def __setitem__(self, key: str, value) -> None:
         """
         Add a key with the given value to the prefix tree,
         or reassign the associated value if it is already present.
@@ -65,21 +87,37 @@ class PrefixTree:
         Return the value for the specified prefix.
         Raise a KeyError if the given key is not in the prefix tree.
         Raise a TypeError if the given key is not a string.
+
+        >>> trie["test"] = "testing"
+        >>> trie["test"] == "testing"
+        True
+        >>> trie["test"] = "overwriting"
+        >>> trie["test"] == "overwriting"
+        True
+        >>> trie["test"] == "testing"
+        False
         """
         if not isinstance(key, str):
             raise TypeError("PrefixTree only accepts string keys.")
         
         relNode = self._getNode_(self, key)
-        if relNode is None:
+        if relNode is None or relNode.value is None:
             raise KeyError("Key is not found in the tree.")
         
         return relNode.value
 
-    def __delitem__(self, key: str):
+    def __delitem__(self, key: str) -> None:
         """
         Delete the given key from the prefix tree if it exists.
         Raise a KeyError if the given key is not in the prefix tree.
         Raise a TypeError if the given key is not a string.
+
+        >>> trie['test'] = 0
+        >>> del trie['test']
+        >>> 'test' not in trie
+        True
+        >>> 'test' not in [word for word,_ in trie]
+        True
         """
         if not isinstance(key, str):
             raise TypeError("PrefixTree only acceps string keys.")
@@ -107,7 +145,7 @@ class PrefixTree:
         curNode.value = None
         parentNode = nodeStack.pop()
         while nodeStack:
-            if len(curNode.children.keys()) == 0: # no children
+            if curNode.value is None and len(curNode.children.keys()) == 0: # no children
                 del parentNode.children[key[kInd-1]]
 
             curNode = parentNode
@@ -115,10 +153,19 @@ class PrefixTree:
             kInd -= 1
 
 
-    def __contains__(self, key: str):
+    def __contains__(self, key: str) -> bool:
         """
         Is key a key in the prefix tree?  Return True or False.
         Raise a TypeError if the given key is not a string.
+
+        >>> words = ["test", "testing", "tester", "tested", "testlonger"]
+        >>> for word in words: 
+        ...     trie[word] = "inserted"
+        >>> presence = []
+        >>> for word in words:
+        ...     presence.append(word in trie)
+        >>> all(presence)
+        True
         """
         if not isinstance(key, str):
             raise TypeError("PrefixTree only accepts string keys.")
@@ -145,16 +192,54 @@ class PrefixTree:
             nodeQueue.extend([(node, curStr+char) for char, node in curNode.children.items()])
 
 
+    def prefixIter(self, prefix: str):
+        """
+        Returns a generator of (key, value) pairs for all keys/values in a specified
+        sub prefix tree and its children.
+        """
+        if not isinstance(prefix, str):
+            raise TypeError("Prefix must be a string.")
+        
+        relTree = self._getNode_(self, prefix)
+        if relTree is None:
+            yield from ()
+        else:
+            yield from relTree.__iter__()
+
+
+    def __str__(self):
+        """
+        A string representation of the trie. There's not really an easy way to show
+        this, so this just prints the collection of words in the trie instead.
+        """
+        return [word for word in self].__str__()
+
+
 def word_frequencies(text):
     """
     Given a piece of text as a single string, create a prefix tree whose keys
     are the words in the text, and whose values are the number of times the
     associated word appears in the text.
+
+    >>> corpus = '''Lorem ipsum dolor sit amet, consectetur adipiscing elit,
+    ...           sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+    ...           Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
+    ...           nisi ut aliquip ex ea commodo consequat.'''
+    >>> x = word_frequencies(corpus)
+    >>> corpus = [sentence.split() for sentence in tokenize_sentences(corpus)]
+    >>> all([(word in x) and (1 <= x[word] <= 3) for sentence in corpus for word in sentence])
+    True
     """
-    raise NotImplementedError
+    tokens = [sentence.split() for sentence in tokenize_sentences(text)]
+    tokens = [elem for subList in tokens for elem in subList]
+    freqTree = PrefixTree()
+    for tok in tokens:
+        freqTree.incrementValue(tok, 1)
+
+    return freqTree
 
 
-def autocomplete(tree, prefix, max_count=None):
+def autocomplete(tree: PrefixTree, prefix, max_count=None):
     """
     Return the list of the most-frequently occurring elements that start with
     the given prefix.  Include only the top max_count elements if max_count is
@@ -162,7 +247,16 @@ def autocomplete(tree, prefix, max_count=None):
 
     Raise a TypeError if the given prefix is not a string.
     """
-    raise NotImplementedError
+    if not isinstance(prefix, str):
+        raise TypeError("Prefix must be a string.")
+    
+    topElements : list[tuple[int, str]] = list()
+    for rWord, count in tree.prefixIter(prefix):
+        topElements.append((rWord, count))
+        if max_count is not None and len(topElements) > max_count:
+            topElements = sorted(topElements, key = lambda tup:tup[1], reverse = True)[:-1]
+
+    return [prefix+end for end,_ in topElements]
 
 
 def autocorrect(tree, prefix, max_count=None):
@@ -189,34 +283,4 @@ def word_filter(tree, pattern):
 
 # you can include test cases of your own in the block below.
 if __name__ == "__main__":
-    doctest.testmod()
-
-    # Make some very simple test cases
-    curTrie = PrefixTree()
-
-    # assignment + iteration
-    curTrie["test"] = "testing"
-    assert curTrie["test"] == "testing", "Assignment failed."
-    curTrie["test"] = "overwriting"
-    assert curTrie["test"] == "overwriting", "Assignment + overwriting failed."
-    for element in curTrie:
-        assert element == ("test", "overwriting"), "Iterator provided an incorrect response."
-
-    # deletion + iteration
-    del curTrie["test"]
-    for element in curTrie:
-        assert False, "There must be no elements in the tree after deletion."
-
-    # nested insertion + containment + deletion
-    wordsToAdd = {'make': 'Toyota', 'model': 'Corolla', 'year': 2006, 'color': 'beige', 'storage space': ''}
-    for word, val in wordsToAdd.items():
-        curTrie[word] = val
-        assert word in [word for word,_ in curTrie], "Failed to find \"{}\"".format(word)
-        assert curTrie[word] == val, "Batch assignment failed"
-        assert word in curTrie, "Could not find added word within the tree."
-    for word, _ in wordsToAdd.items():
-        del curTrie[word]
-        assert word not in [word for word,_ in curTrie], "Iterator providing incorrect results."
-        assert word not in curTrie, "Word still in trie after deletion."
-    for element in curTrie:
-        assert False, "There must be no elements in tree after deletion."
+    doctest.testmod(extraglobs={'trie': PrefixTree()})
