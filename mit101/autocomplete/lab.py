@@ -392,3 +392,44 @@ def word_filter(tree: 'PrefixTree', pattern):
 # you can include test cases of your own in the block below.
 if __name__ == "__main__":
     doctest.testmod(extraglobs={'trie': PrefixTree()})
+
+    # Now we can convert our books into trees
+    def generateTreeFreqs(bookPath: str):
+        with open("./public_books/metamorphosis.txt", 'r') as inFile:
+            curBook = inFile.read()
+
+        curTree = word_frequencies(curBook)
+        return curTree
+    
+    prePath = "./public_books/"
+    relBooks = ["metamorphosis.txt", "taletwocities.txt", "wonderland.txt", "prideprejudice.txt", "dracula.txt"]
+    relBooks = {bookName.replace(".txt", ""):generateTreeFreqs(prePath+bookName) for bookName in relBooks}
+
+    # and answer our questions
+    res1 = autocomplete(relBooks["metamorphosis"], "gre", 6)
+    print("In Metamorphosis, the following are the six most common words starting with \"gre\"")
+    print("\t{}".format(res1), end="\n\n")
+
+    relFilt = "c*h"
+    res2 = word_filter(relBooks["metamorphosis"], relFilt)
+    print("In Metamorphosis, the words that match the filter {} are as follows:".format(relFilt))
+    print("\t{}".format(res2), end="\n\n")
+
+    relFilt = "r?c*h"
+    res3 = word_filter(relBooks["taletwocities"], relFilt)
+    print("In A Tale of Two Cities, the words that match the filter {} are as follows:".format(relFilt))
+    print("\t{}".format(res3), end="\n\n")
+
+    res4 = autocorrect(relBooks["wonderland"], "hear", 12)
+    print("The top 12 corrections for 'hear' in Alice in Wonderland are as follows:")
+    print("\t{}".format(res4), end="\n\n")
+
+    res5 = autocorrect(relBooks["prideprejudice"], "hear")
+    print("All of the autocorrect values for 'hear' in Pride and Prejudice are as follows:")
+    print("\t{}".format(res5), end="\n\n")
+
+    res6 = len([word for word, _ in relBooks["dracula"]])
+    print("There are {} total distinct words in the book, Dracula.".format(res6))
+
+    res7 = sum([freq for _, freq in relBooks['dracula']])
+    print("There are {} total words in the book, Dracula.".format(res7))
