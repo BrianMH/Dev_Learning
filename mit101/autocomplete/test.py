@@ -361,11 +361,25 @@ def test_autocomplete_big_3():
         result = lab.autocomplete(w, ('tuple', ), None)
 
 
+def test_autocorrect_trivial():
+    # tests on fairly trivial examples 
+    t = lab.word_frequencies("bat bat bark bar")
+    result = lab.autocorrect(t, 'bar', 3)
+    assert set(result) == {"bar", "bark", "bat"}
+
+    result = lab.autocorrect(t, 'park', 3)
+    assert set(result) == {"bark"}
+
+    result = lab.autocorrect(t, "completelyDistinct", 3)
+    assert result == []
+
+
 def test_autocorrect_small():
     # Autocorrect on cat in small corpus
     t = lab.word_frequencies("cats cattle hat car act at chat crate act car act")
     result = lab.autocorrect(t, 'cat',4)
     assert set(result) == {"act", "car", "cats", "cattle"}
+
 
 def test_autocorrect_big():
     nums = {'thin': [0, 8, 10, None],
@@ -380,6 +394,57 @@ def test_autocorrect_big():
             expected = read_expected('frank_autocorrect_%s_%s.pickle' % (i, n))
             assert len(expected) == len(result), ('missing' if len(result) < len(expected) else 'too many') + ' autocorrect results for ' + repr(i) + ' with maxcount = ' + str(n)
             assert set(expected) == set(result), 'autocorrect included ' + repr(set(result) - set(expected)) + ' instead of ' + repr(set(expected) - set(result)) + ' for ' + repr(i) + ' with maxcount = '+str(n)
+
+
+def test_filter_trivial():
+    # Tests some fairly basic cases
+    t = lab.word_frequencies("bat bat bar bark")
+    result = lab.word_filter(t, "bat")
+    assert set(result) == {('bat', 2)}
+    result = lab.word_filter(t, "ba?")
+    assert set(result) == {('bat', 2), ('bar', 1)}
+    result = lab.word_filter(t, "???")
+    assert set(result) == {('bat', 2), ('bar', 1)}
+    result = lab.word_filter(t, "*")
+    assert set(result) == {('bat', 2), ('bar', 1), ('bark', 1)}
+    result = lab.word_filter(t, "*r*")
+    assert set(result) == {("bar", 1), ("bark", 1)}
+
+
+@pytest.mark.parametrize("execution_number", range(5))
+@pytest.mark.parametrize("wildcard", ["*", "?"])
+def test_filter_lorem_ipsum(wildcard: str, execution_number: int):
+    # Tests filter on a decently large corpus
+    from text_tokenize import tokenize_sentences
+    from collections import Counter
+    
+    # read file and preprocess
+    with open('./testing_data/lorem_ipsum.txt', 'r') as inFile:
+        lIpsum = inFile.read()
+        lToks = [sentence.split() for sentence in tokenize_sentences(lIpsum)]
+        lToks = [tok for sentence in lToks for tok in sentence]
+        lTokCntr = Counter(lToks)
+
+    # Now perform testing
+    t = lab.word_frequencies(lIpsum)
+    result = lab.word_filter(t, "*")
+    assert set(result) == set((word, freq) for word, freq in lTokCntr.items())
+    
+    # Now how about something more specific?
+    import re
+    import random
+    alphabet = a = "abcdefghijklmnopqrstuvwxyz"
+
+    # Randomly select a letter of the alphabet and append either a ? or * to 
+    # randomly test potential cases within the lorem ipsum dataset
+    numWild = random.randint(1, 5) if wildcard == "?" else 1
+    randLetter = random.choice(a)
+    filt = random.choice([wildcard*numWild + randLetter, randLetter + wildcard*numWild])
+    result = lab.word_filter(t, filt)
+    reFilt = re.compile(filt.replace("?", ".").replace("*", ".*"))
+    assert isinstance(result, list), "Result should be returned as a list."
+    expected = {(word, freq) for word, freq in lTokCntr.items() if reFilt.fullmatch(word) is not None}
+    assert set(result) == expected, "Failed equivalency test for filter {}".format(filt)
 
 
 def test_filter_small():

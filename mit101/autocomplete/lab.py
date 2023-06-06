@@ -8,8 +8,6 @@ from text_tokenize import tokenize_sentences
 
 
 class PrefixTree:
-    CHAR_LEN = 26      # used to keep count of number of potential edges from a node
-
     def __init__(self):
         """
         A prefix tree is essentially a (maximally) 26-ary tree where the
@@ -207,6 +205,49 @@ class PrefixTree:
             yield from relTree.__iter__()
 
 
+    def globWords(self, expr: str, curPrefix: str = "") -> set[str]:
+        '''
+        Recursively attempts to match words to a given expression that can include
+        the ? and * wildcards. ? matches single character (guaranteed to match),
+        while * can match zero or more characters.
+        '''
+        # Early termination cases
+        if expr == "" and self.value is not None:
+            return {(curPrefix, self.value)}
+        elif expr == "":
+            return set()
+        elif expr == "*": #early termination
+            return {(curPrefix+subStr, freq) for subStr, freq in self}
+
+        # Attempt to divide the problem depending on the current expression encountered
+        if expr[0].isalpha(): # match all character exprs found
+            eInd = 1
+            while eInd < len(expr) and expr[eInd].isalpha():
+                eInd += 1
+
+            newRoot = self._getNode_(self, expr[:eInd])
+            # edge case for non-existant substr
+            if newRoot is None:
+                return set()
+            
+            return newRoot.globWords(expr[eInd:], curPrefix+expr[:eInd])
+        elif expr[0] == '?': # match a single character (guaranteed)
+            retStrings = set()
+            for newChar, newRoot in self.children.items():
+                retStrings = retStrings | newRoot.globWords(expr[1:], curPrefix+newChar)
+            
+            return retStrings
+        elif expr[0] == '*': # match as many or as little characters
+            retStrings = self.globWords(expr[1:], curPrefix) # glob 0
+            for newChar, newRoot in self.children.items():
+                retStrings = retStrings | newRoot.globWords(expr[1:], curPrefix+newChar) # glob 1
+                retStrings = retStrings | newRoot.globWords(expr, curPrefix+newChar) # glob 2+
+            
+            return retStrings
+        else:
+            raise ValueError("Expression encountered an unknown character: {}".format(expr[0]))
+
+
     def __str__(self):
         """
         A string representation of the trie. There's not really an easy way to show
@@ -259,6 +300,57 @@ def autocomplete(tree: PrefixTree, prefix, max_count=None):
     return [prefix+end for end,_ in topElements]
 
 
+def generate_single_edit_candidates(word: str):
+    """
+    Returns a list of unique single edit candidates where the edits can be one 
+    of the following:
+        1) A single-edit insertion at any index
+        2) A single-edit deletion of any index
+        3) A single character replacement
+        4) A two-character transpose (swapping)
+    Note that this function makes no assessment of the word's existence in any
+    tree.
+
+    Args:
+        word: The word for which to generate single edit candidates.
+    """
+    alphabet = "abcdefghijklmnopqrstuvwxyz"
+    visited = set()
+
+    # inserts
+    for wInd in range(len(word)+1):
+        for curChar in alphabet:
+            curCand = word[:wInd]+curChar+word[wInd:]
+            if curCand not in visited:
+                yield curCand
+                visited.add(curCand)
+
+    # deletions
+    for wInd in range(len(word)):
+        curCand = word[:wInd]+word[wInd+1:]
+        if curCand not in visited:
+            yield curCand
+            visited.add(curCand)
+
+    # replacements
+    for wInd in range(len(word)):
+        for curChar in alphabet:
+            if curChar == word[wInd]:
+                continue
+
+            curCand = word[:wInd]+curChar+word[wInd+1:]
+            if curCand not in visited:
+                yield curCand
+                visited.add(curCand)
+
+    # transposes
+    for wInd in range(len(word)-1):
+        curCand = word[:wInd] + word[wInd+1] + word[wInd] + word[wInd+2:]
+        if curCand not in visited:
+            yield curCand
+            visited.add(curCand)
+
+
 def autocorrect(tree, prefix, max_count=None):
     """
     Return the list of the most-frequent words that start with prefix or that
@@ -267,10 +359,26 @@ def autocorrect(tree, prefix, max_count=None):
     fewer than max_count elements, include the most-frequently-occurring valid
     edits of the given word as well, up to max_count total elements.
     """
-    raise NotImplementedError
+    # first generate the autocomplete responses
+    autocompResults = set(autocomplete(tree, prefix, max_count))
+
+    # then generate however many results we need from the autocorrect side
+    acLen = None if max_count is None else max_count - len(autocompResults)
+
+    # and perform autocorrect
+    topElements : list[tuple[int, str]] = list()
+    for newWord in generate_single_edit_candidates(prefix):
+        if newWord not in tree or newWord in autocompResults:
+            continue
+
+        topElements.append((newWord, tree[newWord]))
+        if acLen is not None and len(topElements) > acLen:
+            topElements = sorted(topElements, key = lambda tup:tup[1], reverse = True)[:-1]
+
+    return list(autocompResults) + [word for word,_ in topElements]
 
 
-def word_filter(tree, pattern):
+def word_filter(tree: 'PrefixTree', pattern):
     """
     Return list of (word, freq) for all words in the given prefix tree that
     match pattern.  pattern is a string, interpreted as explained below:
@@ -278,7 +386,7 @@ def word_filter(tree, pattern):
          ? matches any single character,
          otherwise char in pattern char must equal char in word.
     """
-    raise NotImplementedError
+    return list(tree.globWords(pattern))
 
 
 # you can include test cases of your own in the block below.
