@@ -4,14 +4,16 @@
 
 import doctest
 
+
 # NO ADDITIONAL IMPORTS ALLOWED!
 # You are welcome to modify the classes below, as well as to implement new
 # classes and helper functions as necessary.
 
 # NOTE: Tester seems to evaluate "entangled-ness" by making sure that the
-#       function performs only one task, but in doing so makes the call to
-#       the function a bit more annoying to deal with if dealing with the
-#       function completely recursively.
+#       function performs only one task per class, but in doing so the call to
+#       the function is a bit more annoying to deal with if dealing with the
+#       function completely recursively using a helper function. A nested function
+#       would work but it's not worth decreasing the legibility of the class.
 
 class Symbol:
     """
@@ -20,6 +22,7 @@ class Symbol:
     """
     precedence = float("inf")
     right_parens = False
+    left_parens = False
 
     def simplify(self):
         """ Variables and numbers simply return themselves. """
@@ -61,6 +64,14 @@ class Symbol:
     def __rtruediv__(self, exprX):
         """ Computes the division of two symbols X/Y(self) """
         return Div(exprX, self)
+    
+    def __pow__(self, exprY):
+        """ Computes the exponential of two symbols X(self)**Y """
+        return Pow(self, exprY)
+
+    def __rpow__(self, exprX):
+        """ Computes the exponential of two symbols X**Y(self) """
+        return Pow(exprX, self)
 
 
 class Var(Symbol):
@@ -170,7 +181,8 @@ class BinOp(Symbol):
                 self.right == other.right)
 
     def __str__(self) -> str:
-        lStr = "("+str(self.left)+")" if self.left.precedence < self.precedence else str(self.left)
+        lStr = "("+str(self.left)+")" if ((self.left.precedence < self.precedence) or
+                                          (self.left.precedence == self.precedence and self.left_parens)) else str(self.left)
         rStr = "("+str(self.right)+")" if ((self.right.precedence < self.precedence) or
                                            (self.right.precedence == self.precedence and self.right_parens)) else str(self.right)
         return lStr + " " + self.OP_VAL + " " + rStr
@@ -320,6 +332,158 @@ class Div(BinOp):
         return Div(Sub(Mul(self.right, self.left.deriv(wrtSymbol)), 
                        Mul(self.left, self.right.deriv(wrtSymbol))),
                    Mul(self.right, self.right))
+    
+class Pow(BinOp):
+    """
+    Binary operator that represents exponentiation.
+    """
+    OP_VAL = "**"
+    precedence = 4
+    left_parens = True
+
+    def simplify(self):
+        """ Wrapper around the helper to return only the symbol. """
+        return __class__.simplify_helper(self)[0]
+    
+    def simplify_helper(self) -> tuple[Symbol, bool]:
+        """ Removes unnecessary ones and zeroes from exponentiation ops """
+        newLeft, lIsNum = self.left.simplify_helper()
+        newRight, rIsNum = self.right.simplify_helper()
+
+        if lIsNum and rIsNum:
+            return Num(self._op_(newLeft.eval(), newRight.eval())), True
+        elif rIsNum and newRight.eval() == 0:
+            return Num(1), True
+        elif rIsNum and newRight.eval() == 1:
+            return newLeft, False
+        elif lIsNum and newLeft.eval() == 0:
+            return Num(0), True
+        
+        return Pow(newLeft, newRight), False
+    
+    @classmethod
+    def _op_(cls, left, right) -> float|int:
+        return left**right
+    
+    def deriv(self, wrtSymbol: str):
+        """ f'(u**n) = n*u**(n-1) * f'(u) """
+        if not isinstance(self.right, Num):
+            raise TypeError("Exponential value is not numerical. Derivative cannot be calculated")
+        
+        return Mul(Mul(self.right, Pow(self.left, Sub(self.right, 1))), 
+                   self.left.deriv(wrtSymbol))
+    
+
+def expression(inStr: str):
+    """
+    Given an input expression, returns a symbolic form representation of
+    the input by doing a little bit of preprocessing.
+    """
+    return parse(tokenize(inStr))
+
+
+def extractSubexpr(inList: list[str], sInd: int) -> list[str]:
+    """
+    Given the known list of tokens, find the entire subexpression
+    starting from a known "(" instance by finding the corresponding
+    ")" instance.
+    """
+    parenDepth = 1
+    subExpr = list()
+    while parenDepth > 0:
+        sInd += 1
+
+        if inList[sInd] == ")":
+            parenDepth -= 1
+        elif inList[sInd] == "(":
+            parenDepth += 1
+        
+        subExpr.append(inList[sInd])
+    
+    return subExpr[:-1]
+
+
+def parse(inList: list[str]) -> Symbol:
+    """
+    Converts a list of tokens into an appropriate symbol.
+    """
+    opDict = {"*": Mul, "-": Sub, "+": Add, "/": Div, "^": Pow}
+    
+    # prepare for recursive assignment of symbols
+    curOp, leftTerm, rightTerm = None, None, None
+    newTok = None   # holder for assignment
+    sInd = 0
+    while sInd < len(inList):
+        if inList[sInd] == "(": # extract subexpression and process rest
+            subexpr = extractSubexpr(inList, sInd)
+            newTok = parse(subexpr)
+            sInd += len(subexpr) + 1
+        elif inList[sInd] in opDict:
+            curOp = opDict[inList[sInd]]
+        elif inList[sInd].isalpha():
+            newTok = Var(inList[sInd])
+        else:  # must be a number
+            newTok = (Num(float(inList[sInd])) if "." in inList[sInd]
+                        else Num(int(inList[sInd])))
+            
+        # Assign new term to new spot
+        if newTok and leftTerm is None:
+            leftTerm = newTok
+        elif newTok and rightTerm is None:
+            rightTerm = newTok
+        
+        # then move to next potential candidate
+        sInd += 1
+        newTok = None
+
+    return curOp(leftTerm, rightTerm) if curOp is not None else leftTerm
+
+
+def tokenize(inStr: str) -> list[str]:
+    """
+    Takes in a string input that is expected to be a proper symbolic
+    representation and returns a list representing the specific tokens
+    within the string.
+    """
+    specialToks = {"(", ")", "+", "/", "*", "^"}
+    negRelToks = specialToks.difference({")"})|{"-"}
+    negTok = "-"
+
+    # parse string
+    unformatted = inStr.replace(" ", "") # get rid of whitespace in string
+    unformatted = unformatted.replace("**", "^") # allows us to identify exponents easily
+    curTok = ""
+    tokList = list()
+    foundNeg = False
+    for sInd in range(len(unformatted)):
+        if unformatted[sInd] in specialToks: # immediately add to list is operator
+            if curTok != "":
+                tokList.append(negTok*foundNeg+curTok)  # and add any parsed variables/numbers
+                foundNeg = False
+                curTok = ""
+            tokList.append(unformatted[sInd])
+        elif unformatted[sInd] == negTok:
+            if curTok: # negative found after a token, must be subtraction
+                tokList.append(negTok*foundNeg+curTok)
+                tokList.append(negTok)
+                foundNeg = False
+                curTok = ""
+            elif not tokList or tokList[-1] in negRelToks:  # negative in other cases
+                foundNeg = True
+            else:                                   # otherwise just treat as subtraction
+                tokList.append(unformatted[sInd])
+        elif unformatted[sInd].isalpha():
+            tokList.append(unformatted[sInd])
+        elif unformatted[sInd].isdigit() or unformatted[sInd]==".":
+            curTok += unformatted[sInd]
+        else:   # this shouldn't happen with any terms unless algo is wrong
+            raise ValueError("Passed strong contains unknown symbols.")
+        
+    # Add final value if necessary
+    if curTok:
+        tokList.append(negTok*foundNeg+curTok)
+    
+    return tokList
 
 
 if __name__ == "__main__":
