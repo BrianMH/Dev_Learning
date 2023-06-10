@@ -180,19 +180,81 @@ def parse(tokens):
 # Built-in Functions #
 ######################
 
+class Frame():
+    builtinFrame: 'Frame'
+    scheme_builtins = {
+        "+": sum,
+        "-": lambda args: -args[0] if len(args) == 1 else (args[0] - sum(args[1:])),
+        "*": lambda args: 1 if len(args) == 0 else (args[0] * Frame.scheme_builtins["*"](args[1:])),
+        "/": lambda args: 1/args[0] if len(args) == 1 else (args[0] / Frame.scheme_builtins["*"](args[1:]))
+    }
 
-scheme_builtins = {
-    "+": sum,
-    "-": lambda args: -args[0] if len(args) == 1 else (args[0] - sum(args[1:])),
-}
+    def __init__(self, enclosingFrame: 'Frame' = 'global', lexicalScoping: bool = True):
+        """
+        A Frame is a structure that binds certain attributes to names such as variables
+        and functions. A frame keeps a reference to its parent frame, which can then be used
+        to implement a proper lexical scoping scheme. For now, we allow lexical scoping when
+        reading variables, but not writing to them.
+        """
+        self.varDict = dict()
+        self.parentFrame = self.builtinFrame if (isinstance(enclosingFrame, str) 
+                                                 and enclosingFrame == 'global') else enclosingFrame
+        self.lexicalScoping = lexicalScoping
 
+    def __setitem__(self, key, value):
+        """
+        Sets the variable FOR ONLY THE CURRENT FRAME. This does nothing to the enclosing frames.
+        """
+        self.varDict[key] = value
+
+    def __getitem__(self, key):
+        """
+        Attempts to lookup the item in the current frame, and (if lexical scoping is enabled)
+        continues the search in the enclosing frame. Returns a SchemeNameError if not found.
+        """
+        if key not in self.varDict:
+            if self.lexicalScoping and self.parentFrame is not None:
+                return self.parentFrame[key]
+            else:
+                raise SchemeNameError("Var {} not found in any enclosing frame.".format(key))
+        
+        return self.varDict[key]
+    
+    def __contains__(self, key):
+        """
+        Returns whether or not a key exists in the current frame or any enclosing
+        frame, if lexical scoping is enabled.
+        """
+        return key in self.varDict or (self.lexicalScoping and 
+                                       self.parentFrame is not None and 
+                                       key in self.parentFrame)
+
+    @classmethod
+    def create_global_frame(cls, varLookup: dict):
+        cls.builtinFrame = Frame(None)
+        cls.builtinFrame.varDict = varLookup
+
+# Sets up the default frame without cluttering global namespace
+Frame.create_global_frame(Frame.scheme_builtins)
 
 ##############
 # Evaluation #
 ##############
 
 
-def evaluate(tree):
+def result_and_frame(tree, curFrame: Frame = None):
+    """
+    Performs the same actions as evaluate but keeps track of
+    the global frame if necessary.
+    """
+    if curFrame is None:
+        curFrame = Frame()
+        return evaluate(tree, curFrame), curFrame
+    else:
+        return evaluate(tree, curFrame), curFrame
+
+
+def evaluate(tree, curFrame: Frame = None):
     """
     Evaluate the given syntax tree according to the rules of the Scheme
     language.
@@ -201,7 +263,36 @@ def evaluate(tree):
         tree (type varies): a fully parsed expression, as the output from the
                             parse function
     """
-    raise NotImplementedError
+    # if there is no current frame, create one for this calculation
+    if curFrame is None:
+        curFrame = Frame()
+
+    # edge cases
+    if isinstance(tree, (float, int)):
+        return tree
+    elif isinstance(tree, str) and not isinstance(number_or_symbol(tree), (float, int)):
+        if tree not in curFrame:
+            raise SchemeNameError("Attempt to make call to undefined symbol {}.".format(tree))
+        return curFrame[tree]
+    elif isinstance(tree, list):
+        # First identify keywords and then default to grabbing a function
+        match tree[0]:
+            case 'define':  # (define NAME EXPR) <- only three elems EXPR can be list|str|int?
+                if len(tree) > 3:
+                    raise SchemeEvaluationError("Call to define had more than three elements.")
+                
+                newVarName = tree[1]
+                curFrame[newVarName] = evaluate(tree[2], curFrame)
+                return curFrame[newVarName]
+            case _:
+                func = evaluate(tree[0], curFrame)
+                if not callable(func):
+                    raise SchemeEvaluationError("Attempted to call uncallable object {}.".format(repr(func)))
+
+                # And use the other values now as the arguments
+                return func([evaluate(tree[tInd], curFrame) for tInd in range(1, len(tree))])
+    else:
+        raise SchemeSyntaxError("Unknown expression passed into eval: {}".format(tree))
 
 
 def repl(verbose=False):
@@ -214,7 +305,7 @@ def repl(verbose=False):
             expression in addition to more detailed error output.
     """
     import traceback
-
+    _, frame = result_and_frame(['+'])  # make a global frame
     while True:
         input_str = input("in> ")
         if input_str == "QUIT":
@@ -226,7 +317,7 @@ def repl(verbose=False):
             expression = parse(token_list)
             if verbose:
                 print("expression>", expression)
-            output = evaluate(expression)
+            output, frame = result_and_frame(expression, frame)
             print("  out>", output)
         except SchemeError as e:
             if verbose:
