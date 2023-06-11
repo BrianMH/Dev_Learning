@@ -176,9 +176,9 @@ def parse(tokens):
 
     return retList[0]
 
-######################
-# Built-in Functions #
-######################
+################################
+# Functions & Frame Management #
+################################
 
 class Frame():
     builtinFrame: 'Frame'
@@ -228,6 +228,13 @@ class Frame():
         return key in self.varDict or (self.lexicalScoping and 
                                        self.parentFrame is not None and 
                                        key in self.parentFrame)
+    
+    def __repr__(self) -> str:
+        """ Representational view for debugging. """
+        return "Frame {} - Parent {} - Vars {} - LS_ON: {}".format(id(self),
+                                                                   id(self.parentFrame),
+                                                                   self.varDict,
+                                                                   self.lexicalScoping)
 
     @classmethod
     def create_global_frame(cls, varLookup: dict):
@@ -236,6 +243,42 @@ class Frame():
 
 # Sets up the default frame without cluttering global namespace
 Frame.create_global_frame(Frame.scheme_builtins)
+
+class Function():
+    def __init__(self, paramNames: list[str], funcTree: list, enclosingFrame: Frame):
+        """
+        A function holds a list of parameter names which are then mapped
+        onto a funcTree which can be evaluated in the context of the parameters.
+        To make things simpler, on call the function creates a 
+        """
+        self.enclosingFrame = enclosingFrame
+        self.funcBody = funcTree
+        self.argKws = paramNames
+
+    def __call__(self, args):
+        """
+        Performs the actual function operations and frame creation (etc.) upon
+        being invoked.
+        """
+        # Error out if function is improperly passed values
+        if len(args) != len(self.argKws):
+            raise SchemeEvaluationError("Function expecting inputs {}".format(self.argKws) +
+                                        "received incorrect argument input {}.".format(args))
+
+        # First create frame with proper scoping and bind vars positionally
+        callFrame = Frame(self.enclosingFrame)
+        for argName, argVal in zip(self.argKws, args):
+            callFrame[argName] = argVal
+
+        # Evaluate function body in frame and return value
+        return evaluate(self.funcBody, callFrame)
+
+    def __repr__(self) -> str:
+        """
+        Representation that might help a bit with debugging functions.s
+        """
+        return "Function {} with input positional args {}".format(id(self), self.argKws)
+
 
 ##############
 # Evaluation #
@@ -252,6 +295,50 @@ def result_and_frame(tree, curFrame: Frame = None):
         return evaluate(tree, curFrame), curFrame
     else:
         return evaluate(tree, curFrame), curFrame
+    
+
+def evaluate_func(tree, curFrame: Frame):
+    """
+    If a tree is not a simple returnable structure, attempt to look up
+    reserved keywords, or, if no keyword exists, extract a named function
+    observable from the current frame with that name and return that value.
+
+    NOTE: This can potentially be split. Having the keywords together is
+          convenient, but it's likely not necessary to have all the processing
+          in this one function. It may even be better to have a class dedicated
+          to keyword parsing to make this more easily observable.
+    """
+    # First identify keywords and then default to grabbing a function
+    match tree[0]:
+        case 'define':  # (define NAME EXPR) <- only three elems EXPR can be list|str|int?
+            if len(tree) > 3:
+                raise SchemeEvaluationError("Call to define had more than three elements.")
+            
+            if not isinstance(tree[1], list): # VAR DEFINITION
+                newVarName = tree[1]
+                curFrame[newVarName] = evaluate(tree[2], curFrame)
+            else: # FUNC SHORTHAND -> (define (NAME PARAM1 PARAM2 ...) EXPR)
+                newVarName = tree[1][0]
+                curFrame[newVarName] = evaluate(['lambda', tree[1][1:], tree[2]], curFrame)
+            
+            return curFrame[newVarName]
+        case 'lambda': # (lambda (PARAM1 PARAM2 ...) EXPR) <- only three elements
+            if len(tree) > 3:
+                raise SchemeEvaluationError("Lambda structure contained more than three elements.")
+            elif not isinstance(tree[1], list):
+                raise SchemeEvaluationError("Lambda arguments must be contained within parenthesis.")
+            
+            # defines the function and returns it
+            varNames = tree[1]
+            func = Function(varNames, tree[2], curFrame)
+            return func
+        case _:
+            func = evaluate(tree[0], curFrame)
+            if not callable(func):
+                raise SchemeEvaluationError("Attempted to call uncallable object {}.".format(repr(func)))
+
+            # And use the other values now as the arguments
+            return func([evaluate(tree[tInd], curFrame) for tInd in range(1, len(tree))])
 
 
 def evaluate(tree, curFrame: Frame = None):
@@ -275,22 +362,7 @@ def evaluate(tree, curFrame: Frame = None):
             raise SchemeNameError("Attempt to make call to undefined symbol {}.".format(tree))
         return curFrame[tree]
     elif isinstance(tree, list):
-        # First identify keywords and then default to grabbing a function
-        match tree[0]:
-            case 'define':  # (define NAME EXPR) <- only three elems EXPR can be list|str|int?
-                if len(tree) > 3:
-                    raise SchemeEvaluationError("Call to define had more than three elements.")
-                
-                newVarName = tree[1]
-                curFrame[newVarName] = evaluate(tree[2], curFrame)
-                return curFrame[newVarName]
-            case _:
-                func = evaluate(tree[0], curFrame)
-                if not callable(func):
-                    raise SchemeEvaluationError("Attempted to call uncallable object {}.".format(repr(func)))
-
-                # And use the other values now as the arguments
-                return func([evaluate(tree[tInd], curFrame) for tInd in range(1, len(tree))])
+        return evaluate_func(tree, curFrame)
     else:
         raise SchemeSyntaxError("Unknown expression passed into eval: {}".format(tree))
 
