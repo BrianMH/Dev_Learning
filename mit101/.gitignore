@@ -24,3 +24,7 @@ puzzles/
 # Mines lab intrinsic ignores
 ui2d/
 uind/
+
+# Lisp2 lab intrinsics
+turtle_samples/
+cturtle.py
