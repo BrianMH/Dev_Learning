@@ -177,9 +177,9 @@ def parse(tokens):
     return retList[0]
 
 
-###############################################
-# Intrinsic Objects and List Helper Functions #
-###############################################
+######################
+# Intrinsic Objects #
+#####################
 
 class Pair():
     def __init__(self, args):
@@ -234,6 +234,11 @@ class Nil:
     def __str__(self) -> str:
         return "nil"
     
+
+#########################
+# List Helper Functions #
+#########################
+
 
 def listPresenceHelper(inList):
     """ 
@@ -487,6 +492,7 @@ class Frame():
         "map": lambda args: listMap(args),
         "filter": lambda args: listFilter(args),
         "reduce": lambda args: listReduce(args),
+        "begin": lambda args: args[-1],
 
         # Logical operators
         "equal?": lambda args: True if len(args) == 1 else ((args[0] == args[1]) and 
@@ -521,6 +527,18 @@ class Frame():
         """
         self.varDict[key] = value
 
+    def setNonlocally(self, key, value):
+        """
+        Sets the value of a variable known to exist in either the current frame or some ancestor
+        frame.
+        """
+        if key in self.varDict:
+            self.varDict[key] = value
+        elif self.lexicalScoping and self.parentFrame is not self.builtinFrame:
+            self.parentFrame.setNonlocally(key, value)
+        else:
+            raise SchemeNameError("Could not find key {} in any frame.".format(key))
+
     def __getitem__(self, key):
         """
         Attempts to lookup the item in the current frame, and (if lexical scoping is enabled)
@@ -542,6 +560,20 @@ class Frame():
         return key in self.varDict or (self.lexicalScoping and 
                                        self.parentFrame is not None and 
                                        key in self.parentFrame)
+    
+    def containedLocally(self, key):
+        """
+        Performs a contain check but ONLY on the current frame's local variables.
+        """
+        return key in self.varDict
+    
+    def removeLocalVar(self, key):
+        """
+        Removes a local variable from the varDict and returns its value.
+        """
+        retVal = self.varDict[key]
+        del self.varDict[key]
+        return retVal
     
     def __repr__(self) -> str:
         """ Representational view for debugging. """
@@ -614,6 +646,8 @@ class Keywords:
     """
     @staticmethod
     def _define(tree, curFrame):
+        """ (define VAR EXPR) """
+        """ (define (NAME PARAM1 PARAM2 ...) EXPR) <= Lambda shorthand """
         if len(tree) > 3:
             raise SchemeEvaluationError("Call to define had more than three elements.")
         
@@ -628,6 +662,7 @@ class Keywords:
     
     @staticmethod
     def _lambda(tree, curFrame):
+        """ (lambda (VAR1 VAR2 VAR3 ...) FUNC) """
         if len(tree) > 3:
             raise SchemeEvaluationError("Lambda structure contained more than three elements.")
         elif not isinstance(tree[1], list):
@@ -640,6 +675,7 @@ class Keywords:
     
     @staticmethod
     def _if(tree, curFrame):
+        """ (if PRED TRUE_RET FALSE_RET) """
         if len(tree) != 4:
             raise SchemeEvaluationError("Special form IF did not receive exactly three inputs.")
         
@@ -650,6 +686,7 @@ class Keywords:
     
     @staticmethod
     def _and(tree, curFrame):
+        """ (and EXPR1 EXPR2 EXPR3 ...) """
         toRet = True
         for subExpr in tree[1:]:
             if not toRet:
@@ -660,6 +697,7 @@ class Keywords:
 
     @staticmethod
     def _or(tree, curFrame):
+        """ (or EXPR1 EXPR2 EXPR3 ...) """
         toRet = False
         for subExpr in tree[1:]:
             if toRet:
@@ -667,6 +705,53 @@ class Keywords:
             toRet |= evaluate(subExpr, curFrame)
         
         return toRet
+    
+    @staticmethod
+    def _del(tree, curFrame):
+        """ (del VAR) """
+        toDel = tree[1]
+        if curFrame.containedLocally(toDel):
+            return curFrame.removeLocalVar(toDel)
+        else:
+            raise SchemeNameError("Given symbol {} does not exist in the current frame.".format(toDel))
+        
+    @staticmethod
+    def _let(tree, curFrame):
+        """ (let ((VAR1 VAL1), (VAR2 VAL2), (VAR3 VAL3), ...) BODY) """
+        # enforce proper size of tree
+        if len(tree) != 3:
+            raise SchemeEvaluationError("Let only receives three arguments.")
+
+        # seperate values
+        assignExprs = tree[1]
+        bodyExpr = tree[2]
+
+        # slowly evaluate values in curframe and assign them in a new child frame
+        childFrame = Frame(curFrame)
+        for varName, expr in assignExprs:
+            childFrame[varName] = evaluate(expr, curFrame)
+        
+        # Then evaluate body in this new frame and return any value
+        return evaluate(bodyExpr, childFrame)
+    
+    @staticmethod
+    def _setBang(tree, curFrame):
+        """ (set! VAR EXPR) """
+        # enforce proper size
+        if len(tree) != 3:
+            raise SchemeEvaluationError("Set! only receives two arguments.")
+        
+        # seperate values
+        varName = tree[1]
+        exprVal = evaluate(tree[2], curFrame)
+
+        # try to assign to any frame where var exists
+        if varName not in curFrame:
+            raise SchemeNameError("Set! cannot change the value of variables not defined in the current or parent frames.")
+        else:
+            curFrame.setNonlocally(varName, exprVal)
+        
+        return exprVal
 
 
 def result_and_frame(tree, curFrame: Frame = None):
@@ -686,19 +771,14 @@ def evaluate_func(tree, curFrame: Frame):
     If a tree is not a simple returnable structure, attempt to look up
     reserved keywords, or, if no keyword exists, extract a named function
     observable from the current frame with that name and return that value.
-
-    NOTE: This can potentially be split. Having the keywords together is
-          convenient, but it's likely not necessary to have all the processing
-          in this one function. It may even be better to have a class dedicated
-          to keyword parsing to make this more easily observable.
     """
     # empty tree
     if len(tree) == 0:
         raise SchemeEvaluationError("Empty structure detected.")
 
     # First identify keywords and then default to grabbing a function
-    if isinstance(tree[0], str) and hasattr(Keywords, '_'+tree[0]):
-        return getattr(Keywords, '_'+tree[0])(tree, curFrame)
+    if isinstance(tree[0], str) and hasattr(Keywords, '_'+tree[0].replace('!','Bang')):
+        return getattr(Keywords, '_'+tree[0].replace('!','Bang'))(tree, curFrame)
     else:
         func = evaluate(tree[0], curFrame)
         if not callable(func):
@@ -732,9 +812,30 @@ def evaluate(tree, curFrame: Frame = None):
         return evaluate_func(tree, curFrame)
     else:
         raise SchemeSyntaxError("Unknown expression passed into eval: {}".format(tree))
+    
+
+def evaluate_file(filename: str, curFrame: Frame = None):
+    """
+    Reads the given file and evalutes all of the lines according to the rules
+    of the Scheme language.
+
+    Args: 
+        filename: a string representing the path to the scheme program file
+        curFrame: an instance of a frame on which to calculate the results of the
+                  given file.
+    """
+    with open(filename, 'r') as inFile:
+        schCode = parse(tokenize(inFile.read()))
+
+    return evaluate(schCode, curFrame)
 
 
-def repl(verbose=False):
+########
+# REPL #
+########
+
+
+def repl(verbose = False, frame = None):
     """
     Read in a single line of user input, evaluate the expression, and print 
     out the result. Repeat until user inputs "QUIT"
@@ -744,7 +845,7 @@ def repl(verbose=False):
             expression in addition to more detailed error output.
     """
     import traceback
-    _, frame = result_and_frame(['+'])  # make a global frame
+    _, frame = result_and_frame(['+'], frame)  # makes a global frame only if not passed
     while True:
         input_str = input("in> ")
         if input_str == "QUIT":
@@ -763,10 +864,15 @@ def repl(verbose=False):
                 traceback.print_tb(e.__traceback__)
             print("Error>", repr(e))
 
+
 if __name__ == "__main__":
     # code in this block will only be executed if lab.py is the main file being
     # run (not when this module is imported)
+    _, replFrame = result_and_frame(parse(['+']))
+    if len(sys.argv) > 1: # we have provided some symbols to evaluate first
+        for inFile in sys.argv[1:]:
+            evaluate_file(inFile, replFrame)
     
     # uncommenting the following line will run doctests from above
     doctest.testmod()
-    repl(True)
+    repl(True, frame = replFrame)
